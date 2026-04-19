@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Simulador PK - Undecilato de Testosterona"
+version = "1.0.0"
+id = "artifacts/pk-simulator"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23962
+
+[services.development]
+run = "pnpm --filter @workspace/pk-simulator run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/pk-simulator", "run", "build" ]
+publicDir = "artifacts/pk-simulator/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23962"
+BASE_PATH = "/"

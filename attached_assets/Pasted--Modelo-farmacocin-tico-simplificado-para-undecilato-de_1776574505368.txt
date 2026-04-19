@@ -1,0 +1,728 @@
+/**
+ * Modelo farmacocinético simplificado para undecilato de testosterona intramuscular
+ * 
+ * Finalidade:
+ * - Simulação educacional e apoio analítico
+ * - Não substitui julgamento clínico, monitorização laboratorial ou decisão médica isolada
+ *
+ * Unidades:
+ * - Tempo: dias
+ * - Concentração: nmol/L
+ * - Dose: mg
+ *
+ * Modelo:
+ * - 1 compartimento
+ * - absorção de primeira ordem
+ * - eliminação de primeira ordem
+ * - múltiplas doses por superposição linear
+ *
+ * Equação base para dose única extravascular:
+ *   C(t) = S * Dose * [exp(-ke*t) - exp(-ka*t)]
+ *
+ * Onde:
+ * - S = fatorEscalaNmolPorLitroPorMgPorDia
+ * - ka = constante de absorção (1/dia)
+ * - ke = constante de eliminação (1/dia)
+ *
+ * Observação:
+ * Em formulações depot IM de longa duração, este é um modelo simplificado.
+ * Sem F e Vd separados, usamos um fator de escala calibrável.
+ */
+
+//////////////////////////////
+// 1) TIPOS / INTERFACES
+//////////////////////////////
+
+export interface DoseProgramada {
+  tempoDias: number;
+  doseMg: number;
+  rotulo?: string;
+}
+
+export interface ParametrosPK {
+  /**
+   * Constante de absorção em 1/dia
+   */
+  kaPorDia: number;
+
+  /**
+   * Constante de eliminação em 1/dia
+   */
+  kePorDia: number;
+
+  /**
+   * Fator de escala do modelo:
+   * unidade = (nmol/L) / (mg·dia)
+   *
+   * Esse fator incorpora, de forma agregada, F/Vd e conversões necessárias.
+   * A concentração para dose única usa:
+   *   C(t) = S * Dose * [e^(-ke*t) - e^(-ka*t)]
+   */
+  fatorEscalaNmolPorLitroPorMgPorDia: number;
+}
+
+export interface ConfiguracaoNumerica {
+  /**
+   * Passo em dias para geração de perfil
+   */
+  passoPerfilDias: number;
+
+  /**
+   * Passo em dias para integração trapezoidal
+   */
+  passoAUCDias: number;
+
+  /**
+   * Passo em dias para busca de Cmax/Tmax/Cmin
+   */
+  passoBuscaDias: number;
+}
+
+export interface PontoConcentracao {
+  tempoDias: number;
+  concentracaoNmolL: number;
+  concentracaoNgdL: number;
+}
+
+export interface IntervaloTempo {
+  inicioDias: number;
+  fimDias: number;
+}
+
+export interface ResumoPK {
+  cmaxNmolL: number;
+  cmaxNgdL: number;
+  tmaxDias: number;
+  cminNmolL: number;
+  cminNgdL: number;
+  aucNmolLxdia: number;
+  concentracaoMediaNmolL: number;
+  concentracaoMediaNgdL: number;
+  meiaVidaTerminalAparenteDias: number;
+}
+
+export interface ResultadoCalculoPK {
+  parametros: ParametrosPK;
+  doses: DoseProgramada[];
+  intervaloAvaliacao: IntervaloTempo;
+  resumo: ResumoPK;
+  perfil: PontoConcentracao[];
+}
+
+export interface ParametrosCalibracaoCmax {
+  /**
+   * Dose única usada para calibração
+   */
+  doseMg: number;
+
+  /**
+   * Cmax observada após dose única
+   */
+  cmaxObservadaNmolL: number;
+
+  /**
+   * Janela de busca para Tmax/Cmax após dose única
+   */
+  horizonteDias: number;
+
+  /**
+   * Resolução da busca
+   */
+  passoBuscaDias?: number;
+}
+
+//////////////////////////////
+// 2) CONSTANTES E CONVERSÕES
+//////////////////////////////
+
+/**
+ * Para testosterona:
+ * 1 ng/dL ≈ 0,0347 nmol/L
+ * 1 nmol/L ≈ 28,84 ng/dL
+ */
+export const FATOR_NMOL_L_PARA_NG_DL_TESTOSTERONA = 28.84;
+export const FATOR_NG_DL_PARA_NMOL_L_TESTOSTERONA = 1 / FATOR_NMOL_L_PARA_NG_DL_TESTOSTERONA;
+
+/**
+ * Limite para tratar ka ≈ ke
+ */
+const EPSILON_KA_KE = 1e-8;
+
+/**
+ * Configuração numérica padrão
+ */
+export const CONFIG_PADRAO: ConfiguracaoNumerica = {
+  passoPerfilDias: 1,
+  passoAUCDias: 0.1,
+  passoBuscaDias: 0.1,
+};
+
+//////////////////////////////
+// 3) VALIDAÇÕES
+//////////////////////////////
+
+export class ErroPK extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ErroPK";
+  }
+}
+
+function validarNumeroFinitoPositivo(valor: number, nome: string): void {
+  if (!Number.isFinite(valor) || valor &lt;= 0) {
+    throw new ErroPK(`${nome} deve ser um número finito e > 0.`);
+  }
+}
+
+function validarNumeroFinitoNaoNegativo(valor: number, nome: string): void {
+  if (!Number.isFinite(valor) || valor &lt; 0) {
+    throw new ErroPK(`${nome} deve ser um número finito e >= 0.`);
+  }
+}
+
+export function validarParametrosPK(parametros: ParametrosPK): void {
+  validarNumeroFinitoPositivo(parametros.kaPorDia, "kaPorDia");
+  validarNumeroFinitoPositivo(parametros.kePorDia, "kePorDia");
+  validarNumeroFinitoPositivo(
+    parametros.fatorEscalaNmolPorLitroPorMgPorDia,
+    "fatorEscalaNmolPorLitroPorMgPorDia"
+  );
+}
+
+export function validarDoses(doses: DoseProgramada[]): void {
+  if (!Array.isArray(doses) || doses.length === 0) {
+    throw new ErroPK("A lista de doses deve conter pelo menos uma dose.");
+  }
+
+  for (const [indice, dose] of doses.entries()) {
+    validarNumeroFinitoNaoNegativo(dose.tempoDias, `doses[${indice}].tempoDias`);
+    validarNumeroFinitoPositivo(dose.doseMg, `doses[${indice}].doseMg`);
+  }
+}
+
+export function validarConfiguracaoNumerica(config: ConfiguracaoNumerica): void {
+  validarNumeroFinitoPositivo(config.passoPerfilDias, "passoPerfilDias");
+  validarNumeroFinitoPositivo(config.passoAUCDias, "passoAUCDias");
+  validarNumeroFinitoPositivo(config.passoBuscaDias, "passoBuscaDias");
+}
+
+export function validarIntervalo(intervalo: IntervaloTempo): void {
+  validarNumeroFinitoNaoNegativo(intervalo.inicioDias, "intervalo.inicioDias");
+  validarNumeroFinitoPositivo(intervalo.fimDias, "intervalo.fimDias");
+
+  if (intervalo.fimDias &lt;= intervalo.inicioDias) {
+    throw new ErroPK("intervalo.fimDias deve ser maior que intervalo.inicioDias.");
+  }
+}
+
+//////////////////////////////
+// 4) FUNÇÕES CENTRAIS PK
+//////////////////////////////
+
+export function converterNmolLParaNgdL(valorNmolL: number): number {
+  validarNumeroFinitoNaoNegativo(valorNmolL, "valorNmolL");
+  return valorNmolL * FATOR_NMOL_L_PARA_NG_DL_TESTOSTERONA;
+}
+
+export function converterNgdLParaNmolL(valorNgdL: number): number {
+  validarNumeroFinitoNaoNegativo(valorNgdL, "valorNgdL");
+  return valorNgdL * FATOR_NG_DL_PARA_NMOL_L_TESTOSTERONA;
+}
+
+/**
+ * Contribuição de uma única dose no tempo decorrido desde sua aplicação.
+ *
+ * Modelo padrão:
+ *   C(t) = S * Dose * [exp(-ke*t) - exp(-ka*t)]    para t >= 0
+ *
+ * Caso especial ka ≈ ke:
+ * limite analítico:
+ *   C(t) = S * Dose * t * exp(-k*t)
+ *
+ * Isso evita instabilidade numérica.
+ */
+export function concentracaoDoseUnicaNmolL(
+  tempoDesdeDoseDias: number,
+  doseMg: number,
+  parametros: ParametrosPK
+): number {
+  validarNumeroFinitoNaoNegativo(tempoDesdeDoseDias, "tempoDesdeDoseDias");
+  validarNumeroFinitoPositivo(doseMg, "doseMg");
+  validarParametrosPK(parametros);
+
+  const { kaPorDia, kePorDia, fatorEscalaNmolPorLitroPorMgPorDia } = parametros;
+
+  if (tempoDesdeDoseDias &lt; 0) {
+    return 0;
+  }
+
+  if (Math.abs(kaPorDia - kePorDia) &lt; EPSILON_KA_KE) {
+    const k = (kaPorDia + kePorDia) / 2;
+    return fatorEscalaNmolPorLitroPorMgPorDia * doseMg * tempoDesdeDoseDias * Math.exp(-k * tempoDesdeDoseDias);
+  }
+
+  return (
+    fatorEscalaNmolPorLitroPorMgPorDia *
+    doseMg *
+    (Math.exp(-kePorDia * tempoDesdeDoseDias) - Math.exp(-kaPorDia * tempoDesdeDoseDias))
+  );
+}
+
+/**
+ * Soma a contribuição de todas as doses administradas até o tempo t.
+ */
+export function concentracaoTotalNmolL(
+  tempoDias: number,
+  doses: DoseProgramada[],
+  parametros: ParametrosPK
+): number {
+  validarNumeroFinitoNaoNegativo(tempoDias, "tempoDias");
+  validarDoses(doses);
+  validarParametrosPK(parametros);
+
+  let soma = 0;
+
+  for (const dose of doses) {
+    if (dose.tempoDias &lt;= tempoDias) {
+      soma += concentracaoDoseUnicaNmolL(tempoDias - dose.tempoDias, dose.doseMg, parametros);
+    }
+  }
+
+  return Math.max(0, soma);
+}
+
+export function concentracaoTotalNgdL(
+  tempoDias: number,
+  doses: DoseProgramada[],
+  parametros: ParametrosPK
+): number {
+  return converterNmolLParaNgdL(concentracaoTotalNmolL(tempoDias, doses, parametros));
+}
+
+export function gerarPerfilConcentracao(
+  doses: DoseProgramada[],
+  parametros: ParametrosPK,
+  horizonteDias: number,
+  passoDias: number = CONFIG_PADRAO.passoPerfilDias
+): PontoConcentracao[] {
+  validarDoses(doses);
+  validarParametrosPK(parametros);
+  validarNumeroFinitoPositivo(horizonteDias, "horizonteDias");
+  validarNumeroFinitoPositivo(passoDias, "passoDias");
+
+  const perfil: PontoConcentracao[] = [];
+
+  for (let t = 0; t &lt;= horizonteDias + 1e-12; t += passoDias) {
+    const cNmolL = concentracaoTotalNmolL(t, doses, parametros);
+    perfil.push({
+      tempoDias: Number(t.toFixed(6)),
+      concentracaoNmolL: cNmolL,
+      concentracaoNgdL: converterNmolLParaNgdL(cNmolL),
+    });
+  }
+
+  return perfil;
+}
+
+/**
+ * AUC por regra trapezoidal no intervalo especificado.
+ */
+export function calcularAUCIntervaloNmolLxdia(
+  doses: DoseProgramada[],
+  parametros: ParametrosPK,
+  intervalo: IntervaloTempo,
+  passoDias: number = CONFIG_PADRAO.passoAUCDias
+): number {
+  validarDoses(doses);
+  validarParametrosPK(parametros);
+  validarIntervalo(intervalo);
+  validarNumeroFinitoPositivo(passoDias, "passoDias");
+
+  let auc = 0;
+  let t = intervalo.inicioDias;
+
+  while (t &lt; intervalo.fimDias) {
+    const proximoT = Math.min(t + passoDias, intervalo.fimDias);
+    const c1 = concentracaoTotalNmolL(t, doses, parametros);
+    const c2 = concentracaoTotalNmolL(proximoT, doses, parametros);
+    auc += ((c1 + c2) / 2) * (proximoT - t);
+    t = proximoT;
+  }
+
+  return auc;
+}
+
+export function calcularConcentracaoMediaIntervaloNmolL(
+  doses: DoseProgramada[],
+  parametros: ParametrosPK,
+  intervalo: IntervaloTempo,
+  passoDias: number = CONFIG_PADRAO.passoAUCDias
+): number {
+  const auc = calcularAUCIntervaloNmolLxdia(doses, parametros, intervalo, passoDias);
+  return auc / (intervalo.fimDias - intervalo.inicioDias);
+}
+
+export function calcularCmaxETmax(
+  doses: DoseProgramada[],
+  parametros: ParametrosPK,
+  intervalo: IntervaloTempo,
+  passoBuscaDias: number = CONFIG_PADRAO.passoBuscaDias
+): { cmaxNmolL: number; cmaxNgdL: number; tmaxDias: number } {
+  validarDoses(doses);
+  validarParametrosPK(parametros);
+  validarIntervalo(intervalo);
+  validarNumeroFinitoPositivo(passoBuscaDias, "passoBuscaDias");
+
+  let melhorTempo = intervalo.inicioDias;
+  let melhorConc = concentracaoTotalNmolL(melhorTempo, doses, parametros);
+
+  for (let t = intervalo.inicioDias; t &lt;= intervalo.fimDias + 1e-12; t += passoBuscaDias) {
+    const c = concentracaoTotalNmolL(t, doses, parametros);
+    if (c > melhorConc) {
+      melhorConc = c;
+      melhorTempo = t;
+    }
+  }
+
+  return {
+    cmaxNmolL: melhorConc,
+    cmaxNgdL: converterNmolLParaNgdL(melhorConc),
+    tmaxDias: Number(melhorTempo.toFixed(6)),
+  };
+}
+
+export function calcularCminIntervalo(
+  doses: DoseProgramada[],
+  parametros: ParametrosPK,
+  intervalo: IntervaloTempo,
+  passoBuscaDias: number = CONFIG_PADRAO.passoBuscaDias
+): { cminNmolL: number; cminNgdL: number; tminDias: number } {
+  validarDoses(doses);
+  validarParametrosPK(parametros);
+  validarIntervalo(intervalo);
+  validarNumeroFinitoPositivo(passoBuscaDias, "passoBuscaDias");
+
+  let piorTempo = intervalo.inicioDias;
+  let piorConc = concentracaoTotalNmolL(piorTempo, doses, parametros);
+
+  for (let t = intervalo.inicioDias; t &lt;= intervalo.fimDias + 1e-12; t += passoBuscaDias) {
+    const c = concentracaoTotalNmolL(t, doses, parametros);
+    if (c &lt; piorConc) {
+      piorConc = c;
+      piorTempo = t;
+    }
+  }
+
+  return {
+    cminNmolL: piorConc,
+    cminNgdL: converterNmolLParaNgdL(piorConc),
+    tminDias: Number(piorTempo.toFixed(6)),
+  };
+}
+
+/**
+ * Para este modelo, a meia-vida terminal aparente é ln(2)/min(ka, ke) ou,
+ * em muitos cenários de observação tardia, dominada pelo termo mais lento.
+ *
+ * Como o declínio terminal é governado pela menor constante,
+ * usamos a menor entre ka e ke para obter a meia-vida aparente terminal.
+ */
+export function calcularMeiaVidaTerminalAparenteDias(parametros: ParametrosPK): number {
+  validarParametrosPK(parametros);
+  const lambdaTerminal = Math.min(parametros.kaPorDia, parametros.kePorDia);
+  return Math.log(2) / lambdaTerminal;
+}
+
+//////////////////////////////
+// 5) FUNÇÕES DE ESQUEMA POSOLÓGICO
+//////////////////////////////
+
+/**
+ * Gera um cronograma simples de doses repetidas.
+ */
+export function gerarCronogramaDosesFixas(
+  doseMg: number,
+  intervaloDias: number,
+  horizonteDias: number,
+  inicioDias: number = 0,
+  rotulo?: string
+): DoseProgramada[] {
+  validarNumeroFinitoPositivo(doseMg, "doseMg");
+  validarNumeroFinitoPositivo(intervaloDias, "intervaloDias");
+  validarNumeroFinitoPositivo(horizonteDias, "horizonteDias");
+  validarNumeroFinitoNaoNegativo(inicioDias, "inicioDias");
+
+  const doses: DoseProgramada[] = [];
+
+  for (let t = inicioDias; t &lt;= horizonteDias + 1e-12; t += intervaloDias) {
+    doses.push({
+      tempoDias: Number(t.toFixed(6)),
+      doseMg,
+      rotulo,
+    });
+  }
+
+  return doses;
+}
+
+/**
+ * Gera esquema genérico com dose de ataque + uma segunda dose de ataque opcional
+ * + manutenção fixa.
+ *
+ * Exemplo típico de TU:
+ * - dia 0
+ * - dia 42
+ * - depois a cada 84 dias
+ */
+export function gerarEsquemaAtaqueEManutencao(
+  horizonteDias: number,
+  doseInicialMg: number,
+  diaSegundaDose: number | null,
+  doseSegundaMg: number | null,
+  doseManutencaoMg: number,
+  intervaloManutencaoDias: number
+): DoseProgramada[] {
+  validarNumeroFinitoPositivo(horizonteDias, "horizonteDias");
+  validarNumeroFinitoPositivo(doseInicialMg, "doseInicialMg");
+  validarNumeroFinitoPositivo(doseManutencaoMg, "doseManutencaoMg");
+  validarNumeroFinitoPositivo(intervaloManutencaoDias, "intervaloManutencaoDias");
+
+  const doses: DoseProgramada[] = [
+    { tempoDias: 0, doseMg: doseInicialMg, rotulo: "Dose inicial" },
+  ];
+
+  if (diaSegundaDose !== null) {
+    validarNumeroFinitoPositivo(diaSegundaDose, "diaSegundaDose");
+
+    const dose2 = doseSegundaMg ?? doseManutencaoMg;
+    validarNumeroFinitoPositivo(dose2, "doseSegundaMg");
+
+    doses.push({
+      tempoDias: diaSegundaDose,
+      doseMg: dose2,
+      rotulo: "Segunda dose",
+    });
+
+    for (
+      let t = diaSegundaDose + intervaloManutencaoDias;
+      t &lt;= horizonteDias + 1e-12;
+      t += intervaloManutencaoDias
+    ) {
+      doses.push({
+        tempoDias: Number(t.toFixed(6)),
+        doseMg: doseManutencaoMg,
+        rotulo: "Manutenção",
+      });
+    }
+  } else {
+    for (let t = intervaloManutencaoDias; t &lt;= horizonteDias + 1e-12; t += intervaloManutencaoDias) {
+      doses.push({
+        tempoDias: Number(t.toFixed(6)),
+        doseMg: doseManutencaoMg,
+        rotulo: "Manutenção",
+      });
+    }
+  }
+
+  return doses.sort((a, b) => a.tempoDias - b.tempoDias);
+}
+
+//////////////////////////////
+// 6) CALIBRAÇÃO E FUNÇÃO PRINCIPAL
+//////////////////////////////
+
+/**
+ * Calibra o fator de escala a partir de uma Cmax observada após dose única.
+ *
+ * Estratégia:
+ * 1. assume ka e ke conhecidos
+ * 2. simula dose única com fator=1
+ * 3. encontra Cmax_unitária
+ * 4. ajusta fator para que Cmax simulada = Cmax observada
+ */
+export function calibrarFatorEscalaPorCmaxObservada(
+  parametrosBase: Omit<ParametrosPK, "fatorEscalaNmolPorLitroPorMgPorDia">,
+  dados: ParametrosCalibracaoCmax
+): number {
+  validarNumeroFinitoPositivo(parametrosBase.kaPorDia, "parametrosBase.kaPorDia");
+  validarNumeroFinitoPositivo(parametrosBase.kePorDia, "parametrosBase.kePorDia");
+  validarNumeroFinitoPositivo(dados.doseMg, "dados.doseMg");
+  validarNumeroFinitoPositivo(dados.cmaxObservadaNmolL, "dados.cmaxObservadaNmolL");
+  validarNumeroFinitoPositivo(dados.horizonteDias, "dados.horizonteDias");
+
+  const passoBuscaDias = dados.passoBuscaDias ?? 0.01;
+  validarNumeroFinitoPositivo(passoBuscaDias, "dados.passoBuscaDias");
+
+  const parametrosUnitarios: ParametrosPK = {
+    ...parametrosBase,
+    fatorEscalaNmolPorLitroPorMgPorDia: 1,
+  };
+
+  const doseUnica: DoseProgramada[] = [{ tempoDias: 0, doseMg: dados.doseMg }];
+
+  const { cmaxNmolL } = calcularCmaxETmax(
+    doseUnica,
+    parametrosUnitarios,
+    { inicioDias: 0, fimDias: dados.horizonteDias },
+    passoBuscaDias
+  );
+
+  if (cmaxNmolL &lt;= 0) {
+    throw new ErroPK("Não foi possível calibrar o fator de escala: Cmax unitária inválida.");
+  }
+
+  return dados.cmaxObservadaNmolL / cmaxNmolL;
+}
+
+/**
+ * Função principal: calcula perfil + resumo.
+ */
+export function calcularSimulacaoPK(
+  doses: DoseProgramada[],
+  parametros: ParametrosPK,
+  horizonteDias: number,
+  intervaloAvaliacao?: IntervaloTempo,
+  configuracao: ConfiguracaoNumerica = CONFIG_PADRAO
+): ResultadoCalculoPK {
+  validarDoses(doses);
+  validarParametrosPK(parametros);
+  validarNumeroFinitoPositivo(horizonteDias, "horizonteDias");
+  validarConfiguracaoNumerica(configuracao);
+
+  const intervalo: IntervaloTempo = intervaloAvaliacao ?? {
+    inicioDias: 0,
+    fimDias: horizonteDias,
+  };
+
+  validarIntervalo(intervalo);
+
+  const perfil = gerarPerfilConcentracao(
+    doses,
+    parametros,
+    horizonteDias,
+    configuracao.passoPerfilDias
+  );
+
+  const { cmaxNmolL, cmaxNgdL, tmaxDias } = calcularCmaxETmax(
+    doses,
+    parametros,
+    intervalo,
+    configuracao.passoBuscaDias
+  );
+
+  const { cminNmolL, cminNgdL } = calcularCminIntervalo(
+    doses,
+    parametros,
+    intervalo,
+    configuracao.passoBuscaDias
+  );
+
+  const aucNmolLxdia = calcularAUCIntervaloNmolLxdia(
+    doses,
+    parametros,
+    intervalo,
+    configuracao.passoAUCDias
+  );
+
+  const concentracaoMediaNmolL = aucNmolLxdia / (intervalo.fimDias - intervalo.inicioDias);
+  const concentracaoMediaNgdL = converterNmolLParaNgdL(concentracaoMediaNmolL);
+
+  const meiaVidaTerminalAparenteDias = calcularMeiaVidaTerminalAparenteDias(parametros);
+
+  return {
+    parametros,
+    doses: [...doses].sort((a, b) => a.tempoDias - b.tempoDias),
+    intervaloAvaliacao: intervalo,
+    resumo: {
+      cmaxNmolL,
+      cmaxNgdL,
+      tmaxDias,
+      cminNmolL,
+      cminNgdL,
+      aucNmolLxdia,
+      concentracaoMediaNmolL,
+      concentracaoMediaNgdL,
+      meiaVidaTerminalAparenteDias,
+    },
+    perfil,
+  };
+}
+
+//////////////////////////////
+// 7) EXEMPLO DE USO
+//////////////////////////////
+
+/**
+ * Exemplo 1:
+ * Parâmetros diretamente definidos
+ */
+export function exemploUsoBasico(): ResultadoCalculoPK {
+  const doses = gerarEsquemaAtaqueEManutencao(
+    365,   // horizonte em dias
+    1000,  // dose inicial mg
+    42,    // segunda dose no dia 42
+    1000,  // segunda dose mg
+    1000,  // manutenção mg
+    84     // intervalo manutenção dias
+  );
+
+  const parametros: ParametrosPK = {
+    kaPorDia: 0.03,
+    kePorDia: 0.01,
+    fatorEscalaNmolPorLitroPorMgPorDia: 0.06,
+  };
+
+  return calcularSimulacaoPK(
+    doses,
+    parametros,
+    365,
+    { inicioDias: 84, fimDias: 365 },
+    {
+      passoPerfilDias: 1,
+      passoAUCDias: 0.1,
+      passoBuscaDias: 0.1,
+    }
+  );
+}
+
+/**
+ * Exemplo 2:
+ * Calibrando o fator de escala por uma Cmax observada
+ */
+export function exemploUsoComCalibracao(): ResultadoCalculoPK {
+  const kaPorDia = 0.03;
+  const kePorDia = 0.01;
+
+  const fatorCalibrado = calibrarFatorEscalaPorCmaxObservada(
+    { kaPorDia, kePorDia },
+    {
+      doseMg: 1000,
+      cmaxObservadaNmolL: 38,
+      horizonteDias: 60,
+      passoBuscaDias: 0.01,
+    }
+  );
+
+  const parametros: ParametrosPK = {
+    kaPorDia,
+    kePorDia,
+    fatorEscalaNmolPorLitroPorMgPorDia: fatorCalibrado,
+  };
+
+  const doses = gerarEsquemaAtaqueEManutencao(
+    365,
+    1000,
+    42,
+    1000,
+    1000,
+    84
+  );
+
+  return calcularSimulacaoPK(
+    doses,
+    parametros,
+    365,
+    { inicioDias: 84, fimDias: 365 },
+    CONFIG_PADRAO
+  );
+}
