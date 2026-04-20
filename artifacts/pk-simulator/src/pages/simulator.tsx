@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import {
   ComposedChart,
   Area,
@@ -213,6 +213,17 @@ export default function Simulator() {
     setMcConcluido(true);
   }, [doses, config.nSimulacoesMC, horDias]);
 
+  // Auto-executar simulação de variação quando ativada ou quando parâmetros mudam (debounced)
+  useEffect(() => {
+    if (!config.mostrarMonteCarlo) {
+      setResultadoMC(null);
+      setMcConcluido(false);
+      return;
+    }
+    const t = setTimeout(() => { void executarMC(); }, 200);
+    return () => clearTimeout(t);
+  }, [config.mostrarMonteCarlo, doses, config.nSimulacoesMC, executarMC]);
+
   const chave = config.unidade === "ngdl" ? "ngdl" : "nmol";
   const unLabel = config.unidade === "ngdl" ? "ng/dL" : "nmol/L";
   const eugMin = config.unidade === "ngdl" ? EUGONADAL_MIN_NGDL : EUGONADAL_MIN_NMOL;
@@ -267,7 +278,16 @@ export default function Simulator() {
     config.unidade
   );
 
-  const xTickFormatter = (v: number) => `${Math.round(v)}w`;
+  const xTickFormatter = (v: number) => `sem ${Math.round(v)}`;
+
+  // Ticks de eixo X: a cada 12 semanas (≈ 3 meses) para legibilidade
+  const xTicks = useMemo(() => {
+    const maxSemana = Math.ceil(horDias / 7);
+    const step = maxSemana > 80 ? 24 : maxSemana > 40 ? 12 : 6;
+    const arr: number[] = [];
+    for (let s = 0; s <= maxSemana; s += step) arr.push(s);
+    return arr;
+  }, [horDias]);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -278,8 +298,8 @@ export default function Simulator() {
             <FlaskConical className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="font-bold text-base leading-tight">Simulador PK — TU Intramuscular</h1>
-            <p className="text-xs text-muted-foreground">Modelo de 2 compartimentos · Nebido 1000 mg · Monte Carlo</p>
+            <h1 className="font-bold text-base leading-tight">Simulador de Testosterona Intramuscular</h1>
+            <p className="text-xs text-muted-foreground">Como a concentração no sangue varia ao longo do tratamento com Nebido (undecilato de testosterona)</p>
           </div>
         </div>
         <Badge variant="outline" className="text-xs gap-1">
@@ -292,12 +312,12 @@ export default function Simulator() {
         {/* Painel de controles */}
         <aside className="w-full lg:w-72 border-b lg:border-b-0 lg:border-r border-border p-4 flex flex-col gap-4 bg-card overflow-y-auto">
           <div>
-            <h2 className="text-sm font-semibold mb-3 text-foreground">Esquema Posológico</h2>
+            <h2 className="text-sm font-semibold mb-3 text-foreground">Esquema de doses</h2>
 
             <div className="flex flex-col gap-4">
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <Label className="text-xs text-muted-foreground">Dose por injeção</Label>
+                  <Label className="text-xs text-muted-foreground">Quantidade por injeção</Label>
                   <span className="text-xs font-mono font-medium">{config.doseMg} mg</span>
                 </div>
                 <Slider
@@ -313,8 +333,8 @@ export default function Simulator() {
 
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <Label className="text-xs text-muted-foreground">Intervalo entre doses</Label>
-                  <span className="text-xs font-mono font-medium">{config.intervaloDias}d ({(config.intervaloDias / 7).toFixed(0)}sem)</span>
+                  <Label className="text-xs text-muted-foreground">Tempo entre injeções</Label>
+                  <span className="text-xs font-mono font-medium">{(config.intervaloDias / 7).toFixed(0)} semanas</span>
                 </div>
                 <Slider
                   data-testid="slider-intervalo"
@@ -329,8 +349,8 @@ export default function Simulator() {
 
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <Label className="text-xs text-muted-foreground">Número de doses</Label>
-                  <span className="text-xs font-mono font-medium">{config.nDoses} doses</span>
+                  <Label className="text-xs text-muted-foreground">Quantas injeções simular</Label>
+                  <span className="text-xs font-mono font-medium">{config.nDoses}</span>
                 </div>
                 <Slider
                   data-testid="slider-ndoses"
@@ -348,10 +368,10 @@ export default function Simulator() {
           <Separator />
 
           <div>
-            <h2 className="text-sm font-semibold mb-3">Visualização</h2>
+            <h2 className="text-sm font-semibold mb-3">Como exibir</h2>
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">Unidade</Label>
+                <Label className="text-xs text-muted-foreground">Unidade de medida</Label>
                 <div className="flex items-center gap-2 text-xs">
                   <span className={config.unidade === "ngdl" ? "text-foreground font-medium" : "text-muted-foreground"}>ng/dL</span>
                   <Switch
@@ -363,52 +383,45 @@ export default function Simulator() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">Monte Carlo (IIV)</Label>
-                <Switch
-                  data-testid="switch-mc"
-                  checked={config.mostrarMonteCarlo}
-                  onCheckedChange={v => setConfig(c => ({ ...c, mostrarMonteCarlo: v }))}
-                />
-              </div>
-
-              {config.mostrarMonteCarlo && (
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <Label className="text-xs text-muted-foreground">Simulações MC</Label>
-                    <span className="text-xs font-mono font-medium">{config.nSimulacoesMC}</span>
-                  </div>
-                  <Slider
-                    data-testid="slider-mc"
-                    min={50} max={500} step={50}
-                    value={[config.nSimulacoesMC]}
-                    onValueChange={([v]) => setConfig(c => ({ ...c, nSimulacoesMC: v }))}
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-medium text-foreground">Mostrar variação entre pacientes</Label>
+                  <Switch
+                    data-testid="switch-mc"
+                    checked={config.mostrarMonteCarlo}
+                    onCheckedChange={v => setConfig(c => ({ ...c, mostrarMonteCarlo: v }))}
                   />
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>50</span><span>500</span>
-                  </div>
-                  <Button
-                    data-testid="btn-executar-mc"
-                    variant="default"
-                    size="sm"
-                    className="w-full mt-1"
-                    onClick={executarMC}
-                    disabled={isCalculating}
-                  >
-                    {isCalculating ? (
-                      <span className="flex items-center gap-2">
-                        <span className="inline-block w-3 h-3 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
-                        Calculando...
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-2">
-                        <BarChart2 className="w-4 h-4" />
-                        {mcConcluido ? "Recalcular MC" : "Executar Monte Carlo"}
-                      </span>
-                    )}
-                  </Button>
                 </div>
-              )}
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  Pessoas diferentes respondem de forma diferente à mesma dose. Ative para ver a faixa esperada na população (de quem responde menos a quem responde mais).
+                </p>
+                {config.mostrarMonteCarlo && (
+                  <div className="pt-2 space-y-2 border-t border-border">
+                    <div className="flex justify-between">
+                      <Label className="text-[11px] text-muted-foreground">Quantos pacientes simular</Label>
+                      <span className="text-[11px] font-mono font-medium">{config.nSimulacoesMC}</span>
+                    </div>
+                    <Slider
+                      data-testid="slider-mc"
+                      min={50} max={500} step={50}
+                      value={[config.nSimulacoesMC]}
+                      onValueChange={([v]) => setConfig(c => ({ ...c, nSimulacoesMC: v }))}
+                    />
+                    <div className="flex justify-between text-[11px] text-muted-foreground">
+                      <span>50</span>
+                      {isCalculating ? (
+                        <span className="flex items-center gap-1 text-primary">
+                          <span className="inline-block w-2 h-2 rounded-full border border-primary border-t-transparent animate-spin" />
+                          calculando…
+                        </span>
+                      ) : mcConcluido ? (
+                        <span className="text-emerald-600 dark:text-emerald-400">pronto</span>
+                      ) : null}
+                      <span>500</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -416,13 +429,13 @@ export default function Simulator() {
 
           {/* Cronograma de doses */}
           <div>
-            <h2 className="text-sm font-semibold mb-2">Cronograma</h2>
+            <h2 className="text-sm font-semibold mb-2">Calendário de injeções</h2>
             <div className="space-y-1 max-h-40 overflow-y-auto">
               {doses.map((d, i) => (
                 <div key={i} className="flex justify-between text-xs py-0.5">
-                  <span className="text-muted-foreground">{d.rotulo}</span>
+                  <span className="text-muted-foreground">Injeção {i + 1}</span>
                   <span className="font-mono text-foreground">
-                    dia {d.diaDose} ({(d.diaDose / 7).toFixed(0)}ª sem)
+                    semana {(d.diaDose / 7).toFixed(0)}
                   </span>
                 </div>
               ))}
@@ -432,9 +445,8 @@ export default function Simulator() {
 
         {/* Área principal */}
         <main className="flex-1 flex flex-col overflow-y-auto">
-          {/* Métricas clínicas */}
+          {/* Métricas clínicas — linguagem clara */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 border-b border-border">
-            {/* Cmax 1ª dose */}
             {(() => {
               const val = config.unidade === "ngdl"
                 ? (metricasClinicas?.cmax1a ?? metricas.cmaxNgdl)
@@ -442,15 +454,14 @@ export default function Simulator() {
               const st = statusEugonadal(val, config.unidade);
               return (
                 <MetricCard
-                  label="Cmax (1ª dose)"
+                  label="Pico após a 1ª injeção"
                   value={fmt(val, config.unidade)}
-                  sub={`Tmax: ~dia ${Math.round(metricasClinicas?.tmax1a ?? metricas.tmaxDias)}`}
+                  sub={`atingido em ~${Math.round(metricasClinicas?.tmax1a ?? metricas.tmaxDias)} dias`}
                   icon={<TrendingUp className="w-3 h-3" />}
                   statusClass={STATUS_COLOR[st]}
                 />
               );
             })()}
-            {/* Cmin SS */}
             {(() => {
               const val = config.unidade === "ngdl"
                 ? (metricasClinicas?.cminSS ?? metricas.cminNgdl)
@@ -458,15 +469,14 @@ export default function Simulator() {
               const st = statusEugonadal(val, config.unidade);
               return (
                 <MetricCard
-                  label="Cmin (nadir SS)"
+                  label="Vale entre doses (estabilizado)"
                   value={fmt(val, config.unidade)}
-                  sub={STATUS_LABEL[st]}
+                  sub={`menor valor antes da próxima injeção · ${STATUS_LABEL[st]}`}
                   icon={STATUS_ICON[st]}
                   statusClass={STATUS_COLOR[st]}
                 />
               );
             })()}
-            {/* Cmax SS */}
             {(() => {
               const val = config.unidade === "ngdl"
                 ? (metricasClinicas?.cmaxSS ?? metricas.cmaxNgdl)
@@ -474,55 +484,53 @@ export default function Simulator() {
               const st = statusEugonadal(val, config.unidade);
               return (
                 <MetricCard
-                  label="Cmax (SS)"
+                  label="Pico entre doses (estabilizado)"
                   value={fmt(val, config.unidade)}
-                  sub="Pico em steady-state"
+                  sub={`maior valor após injeções repetidas · ${STATUS_LABEL[st]}`}
                   icon={<Activity className="w-3 h-3" />}
                   statusClass={STATUS_COLOR[st]}
                 />
               );
             })()}
             <MetricCard
-              label="Steady-state aprox."
-              value={`~${metricas.steadyStateSemana} sem`}
-              sub={`t½ aparente ~${Math.round(metricas.t12AparenteDias)} d`}
+              label="Tempo até estabilizar"
+              value={`~${metricas.steadyStateSemana} semanas`}
+              sub={`a partir daí, picos e vales se repetem em padrão constante`}
               icon={<Clock className="w-3 h-3" />}
             />
           </div>
 
-          {/* Monte Carlo métricas se disponível */}
+          {/* Variação entre pacientes — métricas se disponível */}
           {resultadoMC && config.mostrarMonteCarlo && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-4 py-3 border-b border-border bg-muted/30">
-              <div className="col-span-2 sm:col-span-4">
-                <p className="text-xs font-medium text-muted-foreground mb-2">
-                  Resultados Monte Carlo — {resultadoMC.nSimulacoes} simulações (variabilidade interindividual)
+            <div className="px-4 py-3 border-b border-border bg-muted/30">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-foreground">
+                  Variação entre pacientes — {resultadoMC.nSimulacoes} pacientes simulados
                 </p>
+                <span className="text-[11px] text-muted-foreground">média ± desvio</span>
               </div>
-              <MetricCard
-                label="Cmax média ± DP"
-                value={`${Math.round(resultadoMC.metricasPopulacionais.cmaxMediaNgdl)} ± ${Math.round(resultadoMC.metricasPopulacionais.cmaxDpNgdl)} ng/dL`}
-                sub={`${(resultadoMC.metricasPopulacionais.cmaxDpNgdl / resultadoMC.metricasPopulacionais.cmaxMediaNgdl * 100).toFixed(0)}% CV`}
-              />
-              <MetricCard
-                label="Cmin SS média ± DP"
-                value={`${Math.round(resultadoMC.metricasPopulacionais.cminMediaNgdl)} ± ${Math.round(resultadoMC.metricasPopulacionais.cminDpNgdl)} ng/dL`}
-                sub="Após 6 meses"
-              />
-              <MetricCard
-                label="Tempo eugonádico"
-                value={`${resultadoMC.metricasPopulacionais.percentEugonadal.toFixed(0)}%`}
-                sub="300–1000 ng/dL (SS)"
-                statusClass={
-                  resultadoMC.metricasPopulacionais.percentEugonadal >= 70
-                    ? STATUS_COLOR.normal
-                    : STATUS_COLOR.baixo
-                }
-              />
-              <MetricCard
-                label="IC 90% (P5–P95)"
-                value="Visível no gráfico"
-                sub="Área sombreada azul"
-              />
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <MetricCard
+                  label="Pico máximo entre pacientes"
+                  value={`${Math.round(resultadoMC.metricasPopulacionais.cmaxMediaNgdl)} ± ${Math.round(resultadoMC.metricasPopulacionais.cmaxDpNgdl)} ng/dL`}
+                  sub={`variação típica: ${(resultadoMC.metricasPopulacionais.cmaxDpNgdl / resultadoMC.metricasPopulacionais.cmaxMediaNgdl * 100).toFixed(0)}% para mais ou menos · maior valor que cada paciente atinge`}
+                />
+                <MetricCard
+                  label="Vale médio (estabilizado)"
+                  value={`${Math.round(resultadoMC.metricasPopulacionais.cminMediaNgdl)} ± ${Math.round(resultadoMC.metricasPopulacionais.cminDpNgdl)} ng/dL`}
+                  sub="quanto cada paciente cai antes da próxima dose"
+                />
+                <MetricCard
+                  label="Pacientes na faixa normal"
+                  value={`${resultadoMC.metricasPopulacionais.percentEugonadal.toFixed(0)}%`}
+                  sub="permanecem entre 300–1000 ng/dL após estabilizar"
+                  statusClass={
+                    resultadoMC.metricasPopulacionais.percentEugonadal >= 70
+                      ? STATUS_COLOR.normal
+                      : STATUS_COLOR.baixo
+                  }
+                />
+              </div>
             </div>
           )}
 
@@ -530,37 +538,69 @@ export default function Simulator() {
           <div className="flex-1 p-4">
             <Tabs value={aba} onValueChange={setAba}>
               <TabsList className="mb-4">
-                <TabsTrigger value="grafico" data-testid="tab-grafico">Perfil de concentração</TabsTrigger>
-                <TabsTrigger value="info" data-testid="tab-info">Informações do modelo</TabsTrigger>
+                <TabsTrigger value="grafico" data-testid="tab-grafico">Gráfico ao longo do tempo</TabsTrigger>
+                <TabsTrigger value="info" data-testid="tab-info">Como funciona</TabsTrigger>
               </TabsList>
 
               <TabsContent value="grafico" className="space-y-4">
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm">
-                      Testosterona Sérica — TU IM {config.doseMg} mg / {(config.intervaloDias / 7).toFixed(0)} sem
+                      Testosterona no sangue — {config.doseMg} mg a cada {(config.intervaloDias / 7).toFixed(0)} semanas
                     </CardTitle>
                     <CardDescription className="text-xs">
-                      Modelo de 2 compartimentos com efeito flip-flop.
-                      {config.mostrarMonteCarlo && resultadoMC
-                        ? " Área azul clara = IC 90% (P5–P95); área azul = P25–P75; linha = mediana."
-                        : " Linha = perfil com parâmetros populacionais médios."}
+                      Cada injeção causa uma subida e depois uma descida. Repetidas, vão se sobrepondo até atingir um padrão estável.
+                      A faixa <span className="text-emerald-600 dark:text-emerald-400 font-medium">verde</span> mostra os valores normais para um homem adulto (300–1000 ng/dL).
+                      Linhas tracejadas roxas marcam o dia de cada injeção.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="p-2">
-                    <ResponsiveContainer width="100%" height={340}>
-                      <ComposedChart data={dadosGrafico} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+                    {/* Legenda customizada do gráfico */}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-2 pb-2 text-[11px] text-muted-foreground">
+                      {config.mostrarMonteCarlo && resultadoMC ? (
+                        <>
+                          <span className="flex items-center gap-1.5">
+                            <span className="inline-block w-3 h-2 rounded-sm bg-blue-500/15" />
+                            faixa onde caem 9 em cada 10 pacientes
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="inline-block w-3 h-2 rounded-sm bg-blue-500/30" />
+                            faixa onde caem 5 em cada 10 (a metade típica)
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="inline-block w-3 h-0.5 bg-blue-600" />
+                            paciente médio
+                          </span>
+                        </>
+                      ) : (
+                        <span className="flex items-center gap-1.5">
+                          <span className="inline-block w-3 h-0.5 bg-blue-600" />
+                          concentração de testosterona
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block w-3 h-2 rounded-sm bg-emerald-500/20" />
+                        faixa normal (300–1000 ng/dL)
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block w-0.5 h-3 border-l border-dashed border-indigo-400" />
+                        injeção
+                      </span>
+                    </div>
+                    <ResponsiveContainer width="100%" height={380}>
+                      <ComposedChart data={dadosGrafico} margin={{ top: 10, right: 50, left: 0, bottom: 30 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.5} />
                         <XAxis
                           dataKey="semana"
                           tickFormatter={xTickFormatter}
-                          label={{ value: "Semanas", position: "insideBottomRight", offset: -10, fontSize: 11 }}
+                          label={{ value: "Tempo (semanas desde a 1ª injeção)", position: "insideBottom", offset: -15, fontSize: 11 }}
                           tick={{ fontSize: 10 }}
+                          interval={Math.max(0, Math.floor(dadosGrafico.length / 8))}
                         />
                         <YAxis
-                          label={{ value: unLabel, angle: -90, position: "insideLeft", fontSize: 11, offset: 10 }}
                           tick={{ fontSize: 10 }}
-                          width={55}
+                          width={60}
+                          label={{ value: `Testosterona (${unLabel})`, angle: -90, position: "insideLeft", fontSize: 11, offset: 12 }}
                         />
                         <Tooltip
                           content={<CustomTooltipMC unidade={config.unidade} />}
@@ -569,11 +609,10 @@ export default function Simulator() {
                         {/* Zona eugonadal */}
                         <ReferenceArea
                           y1={eugMin} y2={eugMax}
-                          fill="#22c55e" fillOpacity={0.07}
-                          label={{ value: "Eugonádico", position: "insideTopRight", fontSize: 10, fill: "#16a34a" }}
+                          fill="#22c55e" fillOpacity={0.08}
                         />
-                        <ReferenceLine y={eugMin} stroke="#16a34a" strokeDasharray="4 4" strokeWidth={1} label={{ value: `${eugMin.toFixed(config.unidade === "nmol" ? 1 : 0)}`, position: "right", fontSize: 9, fill: "#16a34a" }} />
-                        <ReferenceLine y={eugMax} stroke="#16a34a" strokeDasharray="4 4" strokeWidth={1} label={{ value: `${eugMax.toFixed(config.unidade === "nmol" ? 1 : 0)}`, position: "right", fontSize: 9, fill: "#16a34a" }} />
+                        <ReferenceLine y={eugMin} stroke="#16a34a" strokeDasharray="4 4" strokeWidth={1} label={{ value: `mín. normal (${eugMin.toFixed(config.unidade === "nmol" ? 1 : 0)})`, position: "right", fontSize: 9, fill: "#16a34a" }} />
+                        <ReferenceLine y={eugMax} stroke="#16a34a" strokeDasharray="4 4" strokeWidth={1} label={{ value: `máx. normal (${eugMax.toFixed(config.unidade === "nmol" ? 1 : 0)})`, position: "right", fontSize: 9, fill: "#16a34a" }} />
 
                         {/* Marcadores de doses */}
                         {doses.map((d, i) => (
@@ -587,57 +626,45 @@ export default function Simulator() {
                           />
                         ))}
 
-                        {config.mostrarMonteCarlo && resultadoMC ? (
-                          <>
-                            {/* IC 90%: banda P5-P95 */}
-                            <Area
-                              type="monotone"
-                              dataKey="bandaIC90"
-                              stroke="none"
-                              fill="#3b82f6"
-                              fillOpacity={0.12}
-                              name="IC 90% (P5–P95)"
-                              dot={false}
-                              activeDot={false}
-                              legendType="square"
-                            />
-                            {/* IQ 50%: banda P25-P75 */}
-                            <Area
-                              type="monotone"
-                              dataKey="bandaIQ50"
-                              stroke="none"
-                              fill="#3b82f6"
-                              fillOpacity={0.25}
-                              name="IQ 50% (P25–P75)"
-                              dot={false}
-                              activeDot={false}
-                              legendType="square"
-                            />
-                            {/* Linha mediana */}
-                            <Line
-                              type="monotone"
-                              dataKey="conc"
-                              stroke="#2563eb"
-                              strokeWidth={2}
-                              dot={false}
-                              name="Mediana MC"
-                            />
-                          </>
-                        ) : (
-                          <Line
+                        {config.mostrarMonteCarlo && resultadoMC && (
+                          <Area
                             type="monotone"
-                            dataKey="conc"
-                            stroke="#3b82f6"
-                            strokeWidth={2.5}
+                            dataKey="bandaIC90"
+                            stroke="none"
+                            fill="#3b82f6"
+                            fillOpacity={0.15}
+                            name="9 em 10 pacientes"
+                            isAnimationActive={false}
                             dot={false}
-                            name="Concentração"
+                            activeDot={false}
                           />
                         )}
+                        {config.mostrarMonteCarlo && resultadoMC && (
+                          <Area
+                            type="monotone"
+                            dataKey="bandaIQ50"
+                            stroke="none"
+                            fill="#3b82f6"
+                            fillOpacity={0.30}
+                            name="metade típica"
+                            isAnimationActive={false}
+                            dot={false}
+                            activeDot={false}
+                          />
+                        )}
+                        <Line
+                          type="monotone"
+                          dataKey="conc"
+                          stroke="#2563eb"
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                          name={config.mostrarMonteCarlo && resultadoMC ? "paciente médio" : "testosterona"}
+                        />
 
-                        <Legend wrapperStyle={{ fontSize: 11 }} />
                         <Brush
                           dataKey="semana"
-                          height={20}
+                          height={16}
                           stroke="hsl(var(--border))"
                           tickFormatter={xTickFormatter}
                           travellerWidth={6}
@@ -647,11 +674,22 @@ export default function Simulator() {
                   </CardContent>
                 </Card>
 
+                {/* Como ler o gráfico */}
+                <div className="rounded-xl border border-blue-500/20 bg-blue-50 dark:bg-blue-950/20 p-3 text-xs text-blue-900 dark:text-blue-200 space-y-1.5">
+                  <p className="font-semibold">Como ler este gráfico</p>
+                  <ul className="list-disc list-inside space-y-1 leading-relaxed">
+                    <li><strong>Subidas e descidas:</strong> cada injeção faz a testosterona subir até um pico, depois cair lentamente até a próxima dose.</li>
+                    <li><strong>Acúmulo:</strong> as primeiras injeções não atingem o nível normal; com doses repetidas, os valores se acumulam até estabilizar.</li>
+                    <li><strong>Faixa verde:</strong> intervalo de testosterona considerado normal para um homem adulto. O ideal é a curva ficar dentro dela.</li>
+                    {config.mostrarMonteCarlo && (
+                      <li><strong>Áreas azuis:</strong> mostram que pacientes diferentes respondem de forma diferente — alguns ficam mais altos, outros mais baixos com a mesma dose.</li>
+                    )}
+                  </ul>
+                </div>
+
                 {/* Aviso clínico */}
                 <div className="rounded-xl border border-amber-500/20 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-700 dark:text-amber-300">
-                  <strong>Aviso:</strong> Esta ferramenta é exclusivamente para fins educacionais e exploratórios.
-                  Não substitui julgamento clínico, monitorização laboratorial (dosagem sérica) nem decisão médica individualizada.
-                  O ajuste de dose deve ser guiado por níveis séricos reais e avaliação clínica.
+                  <strong>Importante:</strong> esta ferramenta é apenas educacional. Não substitui consulta médica, exames de sangue, nem ajuste individualizado de tratamento. O ajuste real de dose deve ser feito com base em exames laboratoriais reais e avaliação médica.
                 </div>
               </TabsContent>
 
@@ -659,97 +697,119 @@ export default function Simulator() {
                 <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-sm">Modelo farmacocinético</CardTitle>
+                      <CardTitle className="text-sm">O que esta simulação faz?</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-sm space-y-3 text-muted-foreground leading-relaxed">
+                      <p>
+                        Quando você toma uma injeção de undecilato de testosterona (Nebido), o medicamento fica
+                        depositado no músculo e é liberado <strong className="text-foreground">muito devagar</strong> para a corrente sanguínea
+                        — durante semanas, não minutos.
+                      </p>
+                      <p>
+                        Esta ferramenta calcula, dia por dia, qual a concentração esperada de testosterona no sangue,
+                        considerando:
+                      </p>
+                      <ul className="list-disc list-inside space-y-1 ml-2">
+                        <li>quanto entra (a injeção)</li>
+                        <li>quanto se distribui pelo corpo (gordura, músculos)</li>
+                        <li>quanto é eliminado (pelo fígado)</li>
+                      </ul>
+                      <p>
+                        O resultado é a <strong className="text-foreground">curva azul</strong> que você vê no gráfico.
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">O que é "variação entre pacientes"?</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-sm space-y-3 text-muted-foreground leading-relaxed">
+                      <p>
+                        Duas pessoas que tomam <strong className="text-foreground">a mesma dose</strong> não têm a mesma
+                        concentração no sangue. Algumas atingem valores mais altos, outras mais baixos.
+                      </p>
+                      <p>Isso depende de fatores como:</p>
+                      <ul className="list-disc list-inside space-y-1 ml-2">
+                        <li>peso e composição corporal</li>
+                        <li>velocidade do fígado em eliminar o hormônio</li>
+                        <li>local da injeção, técnica, tipo de tecido</li>
+                      </ul>
+                      <p>
+                        Quando a opção <em>"Mostrar variação entre pacientes"</em> está ativa, o programa simula
+                        centenas de pacientes virtuais e mostra a faixa onde a maioria cai. As <strong className="text-foreground">áreas
+                        azuis sombreadas</strong> no gráfico mostram essa variação.
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">O que significam as cores?</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-sm space-y-2 text-muted-foreground">
+                      <div className="flex items-start gap-2">
+                        <div className="w-3 h-3 rounded-full bg-amber-500 mt-1 flex-shrink-0" />
+                        <span><strong className="text-foreground">Abaixo de 300 ng/dL — Hipogonádico:</strong> testosterona baixa demais. Pode causar fadiga, baixa libido, perda muscular.</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-3 h-3 rounded-full bg-emerald-500 mt-1 flex-shrink-0" />
+                        <span><strong className="text-foreground">Entre 300 e 1000 ng/dL — Faixa normal:</strong> valores típicos de um homem adulto saudável. Esta é a zona-alvo do tratamento.</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-3 h-3 rounded-full bg-rose-500 mt-1 flex-shrink-0" />
+                        <span><strong className="text-foreground">Acima de 1000 ng/dL — Acima do normal:</strong> pode causar efeitos adversos como aumento de hematócrito, retenção, alteração de humor.</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">Por que demora tanto a estabilizar?</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-sm space-y-3 text-muted-foreground leading-relaxed">
+                      <p>
+                        O Nebido é um <strong className="text-foreground">depósito de liberação lenta</strong>. Cada injeção
+                        leva cerca de 3 meses para terminar de ser absorvida pelo músculo.
+                      </p>
+                      <p>
+                        Por isso, nas <strong className="text-foreground">primeiras 2–4 injeções</strong>, os níveis ainda não atingem o
+                        platô final — a concentração vai aumentando gradualmente até estabilizar (geralmente entre o 3º e o 5º ano de
+                        tratamento, dependendo do intervalo entre doses).
+                      </p>
+                      <p>
+                        Por isso também, ajustes de dose só devem ser feitos depois de medir a testosterona em um momento
+                        já estabilizado, normalmente <strong className="text-foreground">imediatamente antes da próxima injeção</strong> (no vale).
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="md:col-span-2">
+                    <CardHeader>
+                      <CardTitle className="text-sm">Detalhes técnicos (para quem quer entender mais)</CardTitle>
                     </CardHeader>
                     <CardContent className="text-xs space-y-3 text-muted-foreground">
                       <p>
-                        <strong className="text-foreground">Modelo de 2 compartimentos</strong> com efeito flip-flop:
-                        absorção do depósito IM é mais lenta que a eliminação, tornando-a o fator limitante da curva de declínio.
+                        Modelo farmacocinético de <strong className="text-foreground">2 compartimentos com absorção de 1ª ordem</strong>
+                        e <em>efeito flip-flop</em>: a absorção (ka) é mais lenta que a eliminação (k10), tornando-se o fator limitante da curva.
                       </p>
                       <div className="font-mono bg-muted rounded p-2 space-y-1 text-[11px]">
                         <p>dA_depósito/dt = −ka · A_depósito</p>
                         <p>dA_central/dt = ka · A_dep − (k10+k12) · A_c + k21 · A_p</p>
                         <p>dA_periférico/dt = k12 · A_central − k21 · A_periférico</p>
-                        <p>C_plasma = A_central · Vd_fator</p>
                       </div>
-                      <div className="space-y-1">
-                        <p><strong className="text-foreground">Parâmetros populacionais médios (Nebido 1000mg):</strong></p>
-                        <p>ka = 0,05 /dia (t½ absorção ≈ 14 dias)</p>
-                        <p>k10 = 0,008 /dia (eliminação terminal)</p>
-                        <p>k12 = 0,012, k21 = 0,006 /dia (distribuição)</p>
-                        <p>t½ aparente ≈ 90 dias (dominado por ka)</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm">Variabilidade interindividual (Monte Carlo)</CardTitle>
-                    </CardHeader>
-                    <CardContent className="text-xs space-y-3 text-muted-foreground">
                       <p>
-                        Cada simulação sorteia parâmetros individuais a partir de distribuições log-normais,
-                        refletindo a variabilidade farmacogenética e fisiológica real da população.
-                      </p>
-                      <div className="space-y-1">
-                        <p><strong className="text-foreground">Coeficientes de variação (CV%) utilizados:</strong></p>
-                        <p>ka: 35% — variabilidade no volume/viscosidade do depósito</p>
-                        <p>k10: 40% — variabilidade enzimática (CYP, 5α-redutase)</p>
-                        <p>k12/k21: 30% — variabilidade de distribuição</p>
-                        <p>Vd: 35% — composição corporal, gordura</p>
-                        <p>Biodisponibilidade: 20%</p>
-                      </div>
-                      <p className="mt-2">
-                        Os percentis P5–P95 (IC 90%) e P25–P75 (IQ 50%) são representados no gráfico como áreas sombreadas.
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm">Faixas de referência</CardTitle>
-                    </CardHeader>
-                    <CardContent className="text-xs space-y-2 text-muted-foreground">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-rose-500" />
-                        <span><strong className="text-foreground">{"< 300 ng/dL"}</strong> — Hipogonádico (sintomas possíveis)</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                        <span><strong className="text-foreground">300–1000 ng/dL</strong> — Eugonádico (alvo terapêutico)</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-amber-500" />
-                        <span><strong className="text-foreground">{"> 1000 ng/dL"}</strong> — Suprafisiológico (risco de policitemia)</span>
-                      </div>
-                      <Separator className="my-2" />
-                      <p>
-                        <strong className="text-foreground">Steady-state:</strong> Atingido em ≈ 4–5 meias-vidas aparentes (~360–450 dias).
-                        Ajustes de dose antes do SS podem resultar em acúmulo excessivo.
+                        Parâmetros (Nebido 1000 mg): ka = 0,049/dia (t½ absorção ≈ 14 dias);
+                        k10 = 0,0077/dia; k12 = 0,012/dia; k21 = 0,006/dia.
                       </p>
                       <p>
-                        <strong className="text-foreground">Fenômeno flip-flop:</strong> A fase de declínio reflete a absorção do depósito
-                        (ka), não a eliminação hepática (k10). A meia-vida aparente de ~90 dias é essencialmente a meia-vida de liberação.
+                        Variação entre pacientes simulada por <strong className="text-foreground">método de Monte Carlo</strong>:
+                        para cada paciente virtual, sorteia-se um conjunto de parâmetros a partir de distribuições log-normais
+                        (CV de 30–45%) calibradas com dados de Behre, Nieschlag e Bhasin et al.
                       </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm">Referências e limitações</CardTitle>
-                    </CardHeader>
-                    <CardContent className="text-xs space-y-2 text-muted-foreground">
-                      <p>
-                        Parâmetros PK baseados em: Bhasin S et al. (2001); Behre HM, Nieschlag E (2012);
-                        ficha técnica Nebido® (Bayer); Rahnema CD et al. (2014).
-                      </p>
-                      <p>
-                        O modelo simplifica a farmacocinética real — não inclui metabolismo de ésteres,
-                        ligação à SHBG, variação circadiana, nem interações farmacológicas.
-                      </p>
-                      <p>
-                        Para decisões clínicas individualizadas, o <strong className="text-foreground">Bayesian Forecasting</strong> com
-                        níveis séricos reais do paciente oferece predições muito mais precisas.
+                      <p className="opacity-80">
+                        Limitações: não inclui SHBG, variação circadiana, interações medicamentosas nem aromatização.
+                        Para decisões clínicas reais, use exames laboratoriais do próprio paciente.
                       </p>
                     </CardContent>
                   </Card>
