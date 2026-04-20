@@ -476,6 +476,192 @@ export function simularMonteCarlo(
 //   GERADORES DE CRONOGRAMA
 // =====================================================================
 
+// =====================================================================
+//   CALIBRAÇÃO INDIVIDUAL E RECOMENDAÇÃO DE INTERVALO
+// =====================================================================
+
+export interface MedidaPaciente {
+  doseMg: number;          // dose atual (mg)
+  intervaloDias: number;   // intervalo atual (dias)
+  cmaxObsNgdl?: number;    // pico medido no estado estacionário (ng/dL)
+  cminObsNgdl?: number;    // vale medido antes da próxima dose (ng/dL)
+  cavgObsNgdl?: number;    // concentração média medida (opcional)
+}
+
+export interface IntervaloAvaliado {
+  intervaloDias: number;
+  intervaloSemanas: number;
+  cmaxSSNgdl: number;
+  cminSSNgdl: number;
+  cavgSSNgdl: number;
+  percentEugonadal: number;
+  status: "ideal" | "aceitavel" | "vale_baixo" | "pico_alto" | "ambos_fora";
+}
+
+export interface RecomendacaoIntervalo {
+  fatorIndividual: number;            // S_individual / S_pop (sensibilidade relativa)
+  classificacaoSensibilidade: string; // "responde menos", "típico", "responde mais"
+  parametrosIndividuais: ParametrosPK;
+  cenarioAtual: IntervaloAvaliado;    // como está hoje
+  intervalosAvaliados: IntervaloAvaliado[]; // grade 6–16 sem
+  intervaloRecomendadoDias: number;
+  justificativa: string;
+}
+
+/**
+ * Estima parâmetros individuais a partir de medidas reais de um paciente.
+ *
+ * Estratégia (parsimoniosa, dado que tipicamente só temos 1–3 pontos):
+ *   Mantemos a forma da curva populacional (ka_rapido, ka_lento, frac, ke fixos)
+ *   e ajustamos APENAS o fator de escala S, que captura F·peso·SHBG·Vd —
+ *   a fonte dominante de variabilidade observada na clínica.
+ *
+ * O scale é a razão (média geométrica) entre observado e previsto pelo modelo
+ * populacional no mesmo regime, usando os pontos disponíveis (Cmax/Cmin/Cavg).
+ */
+export function estimarParametrosIndividuais(
+  medida: MedidaPaciente
+): { params: ParametrosPK; scale: number } {
+  const params0 = { ...PARAMETROS_POPULACIONAIS };
+
+  // Simular ≥10 doses no regime atual para garantir SS
+  const nDosesSS = 12;
+  const horizonte = medida.intervaloDias * (nDosesSS + 1);
+  const doses = gerarCronograma(medida.doseMg, medida.intervaloDias, nDosesSS);
+  const perfil = simularPerfil(doses, params0, {
+    passoDias: 0.5,
+    horizonteDias: horizonte,
+  });
+
+  // Métricas do último intervalo SS
+  const tIni = doses[doses.length - 2].diaDose;
+  const tFim = doses[doses.length - 1].diaDose;
+  const ssPts = perfil.filter(p => p.dia >= tIni && p.dia < tFim);
+  const cmaxPred = Math.max(...ssPts.map(p => p.ngdl));
+  const cminPred = Math.min(...ssPts.map(p => p.ngdl));
+  const cavgPred = ssPts.reduce((a, p) => a + p.ngdl, 0) / Math.max(1, ssPts.length);
+
+  // Razões disponíveis → média geométrica → scale
+  const razoes: number[] = [];
+  if (medida.cmaxObsNgdl && cmaxPred > 0) razoes.push(medida.cmaxObsNgdl / cmaxPred);
+  if (medida.cminObsNgdl && cminPred > 0) razoes.push(medida.cminObsNgdl / cminPred);
+  if (medida.cavgObsNgdl && cavgPred > 0) razoes.push(medida.cavgObsNgdl / cavgPred);
+  if (razoes.length === 0) {
+    return { params: params0, scale: 1 };
+  }
+  const logMean = razoes.reduce((a, r) => a + Math.log(r), 0) / razoes.length;
+  const scale = Math.exp(logMean);
+
+  return {
+    params: { ...params0, S: params0.S * scale },
+    scale,
+  };
+}
+
+/** Avalia um intervalo de dosagem para um indivíduo (parâmetros conhecidos). */
+function avaliarIntervalo(
+  doseMg: number,
+  intervaloDias: number,
+  params: ParametrosPK
+): IntervaloAvaliado {
+  const nDoses = 12;
+  const horizonte = intervaloDias * (nDoses + 1);
+  const doses = gerarCronograma(doseMg, intervaloDias, nDoses);
+  const perfil = simularPerfil(doses, params, { passoDias: 1, horizonteDias: horizonte });
+
+  const tIni = doses[nDoses - 2].diaDose;
+  const tFim = doses[nDoses - 1].diaDose;
+  const ssPts = perfil.filter(p => p.dia >= tIni && p.dia < tFim);
+
+  let cmax = 0, cmin = Infinity, soma = 0, eugN = 0;
+  for (const p of ssPts) {
+    if (p.ngdl > cmax) cmax = p.ngdl;
+    if (p.ngdl < cmin) cmin = p.ngdl;
+    soma += p.ngdl;
+    if (p.ngdl >= EUGONADAL_MIN_NGDL && p.ngdl <= EUGONADAL_MAX_NGDL) eugN++;
+  }
+  if (!isFinite(cmin)) cmin = 0;
+  const cavg = ssPts.length > 0 ? soma / ssPts.length : 0;
+  const percentEug = ssPts.length > 0 ? (eugN / ssPts.length) * 100 : 0;
+
+  const valeBaixo = cmin < EUGONADAL_MIN_NGDL;
+  const picoAlto = cmax > EUGONADAL_MAX_NGDL;
+  let status: IntervaloAvaliado["status"];
+  if (!valeBaixo && !picoAlto) {
+    status = percentEug >= 90 ? "ideal" : "aceitavel";
+  } else if (valeBaixo && picoAlto) status = "ambos_fora";
+  else if (valeBaixo) status = "vale_baixo";
+  else status = "pico_alto";
+
+  return {
+    intervaloDias,
+    intervaloSemanas: intervaloDias / 7,
+    cmaxSSNgdl: cmax,
+    cminSSNgdl: cmin,
+    cavgSSNgdl: cavg,
+    percentEugonadal: percentEug,
+    status,
+  };
+}
+
+/**
+ * Recomenda o intervalo ideal para um paciente específico, dadas suas medidas reais.
+ *
+ * Critérios de seleção (em ordem):
+ *   1. Vale (Cmin) acima do limiar eugonádico (264 ng/dL) — evita hipogonadismo entre doses
+ *   2. Pico (Cmax) abaixo do limiar superior (916 ng/dL) — evita níveis suprafisiológicos
+ *   3. Entre intervalos que cumprem (1) e (2), preferir o mais longo (menos injeções)
+ *   4. Se nenhum cumpre ambos: maximizar % tempo na faixa eugonádica
+ */
+export function recomendarIntervalo(medida: MedidaPaciente): RecomendacaoIntervalo {
+  const { params, scale } = estimarParametrosIndividuais(medida);
+
+  // Grade de intervalos: 6 a 16 semanas (passo 1 sem)
+  const intervalos: number[] = [];
+  for (let s = 6; s <= 16; s++) intervalos.push(s * 7);
+
+  const avaliacoes = intervalos.map(td => avaliarIntervalo(medida.doseMg, td, params));
+  const cenarioAtual = avaliarIntervalo(medida.doseMg, medida.intervaloDias, params);
+
+  // Selecionar recomendação
+  const ok = avaliacoes.filter(a => a.cminSSNgdl >= EUGONADAL_MIN_NGDL && a.cmaxSSNgdl <= EUGONADAL_MAX_NGDL);
+  let recomendado: IntervaloAvaliado;
+  let justificativa: string;
+  if (ok.length > 0) {
+    // Mais longo entre os que passam → menos injeções
+    recomendado = ok.reduce((m, a) => (a.intervaloDias > m.intervaloDias ? a : m));
+    justificativa = `Com este intervalo, o vale fica em ${Math.round(recomendado.cminSSNgdl)} ng/dL (acima de ${EUGONADAL_MIN_NGDL}) e o pico em ${Math.round(recomendado.cmaxSSNgdl)} ng/dL (abaixo de ${EUGONADAL_MAX_NGDL}). É o intervalo mais espaçado em que o paciente permanece dentro da faixa normal entre doses.`;
+  } else {
+    // Maximizar % tempo na faixa
+    recomendado = avaliacoes.reduce((m, a) => (a.percentEugonadal > m.percentEugonadal ? a : m));
+    const valeBaixo = recomendado.cminSSNgdl < EUGONADAL_MIN_NGDL;
+    const picoAlto = recomendado.cmaxSSNgdl > EUGONADAL_MAX_NGDL;
+    if (valeBaixo && !picoAlto) {
+      justificativa = `Com a dose atual (${medida.doseMg} mg), nenhum intervalo mantém o vale acima de ${EUGONADAL_MIN_NGDL} ng/dL. Este intervalo dá o melhor compromisso (${recomendado.percentEugonadal.toFixed(0)}% do tempo na faixa). Considere AUMENTAR a dose ou reduzir o intervalo.`;
+    } else if (picoAlto && !valeBaixo) {
+      justificativa = `Com a dose atual (${medida.doseMg} mg), o pico passa de ${EUGONADAL_MAX_NGDL} ng/dL em todos os intervalos testados. Considere REDUZIR a dose para evitar níveis suprafisiológicos.`;
+    } else {
+      justificativa = `Com a dose atual (${medida.doseMg} mg), nenhum intervalo simultaneamente mantém o vale acima de ${EUGONADAL_MIN_NGDL} e o pico abaixo de ${EUGONADAL_MAX_NGDL} ng/dL. Considere ajustar a dose.`;
+    }
+  }
+
+  // Classificação da sensibilidade individual
+  let classificacao: string;
+  if (scale < 0.75) classificacao = "responde MENOS que a média (precisa de mais dose ou menos intervalo)";
+  else if (scale > 1.33) classificacao = "responde MAIS que a média (níveis sobem mais com a mesma dose)";
+  else classificacao = "responde de forma típica à dose";
+
+  return {
+    fatorIndividual: scale,
+    classificacaoSensibilidade: classificacao,
+    parametrosIndividuais: params,
+    cenarioAtual,
+    intervalosAvaliados: avaliacoes,
+    intervaloRecomendadoDias: recomendado.intervaloDias,
+    justificativa,
+  };
+}
+
 /** Cronograma simples com intervalo fixo. */
 export function gerarCronograma(
   doseMg: number,

@@ -36,6 +36,7 @@ import {
   calcularMetricas,
   gerarCronograma,
   gerarCronogramaSchubert,
+  recomendarIntervalo,
   PARAMETROS_POPULACIONAIS,
   ALVOS_CALIBRACAO,
   EUGONADAL_MIN_NGDL,
@@ -47,7 +48,10 @@ import {
   type PontoCurva,
   type ResultadoMonteCarlo,
   type MetricasPK,
+  type RecomendacaoIntervalo,
 } from "@/lib/pk-engine";
+import { UserCog } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
 type UnidadeConc = "ngdl" | "nmol";
 
@@ -208,6 +212,36 @@ export default function Simulator() {
 
   const [resultadoMC, setResultadoMC] = useState<ResultadoMonteCarlo | null>(null);
   const [mcConcluido, setMcConcluido] = useState(false);
+
+  // ----- Calibração individual (aba "Ajustar para um paciente") -----
+  const [pacienteIn, setPacienteIn] = useState({
+    doseMg: "1000",
+    intervaloSemanas: "12",
+    cmaxObs: "",
+    cminObs: "",
+    cavgObs: "",
+  });
+  const [recomendacao, setRecomendacao] = useState<RecomendacaoIntervalo | null>(null);
+
+  const calcularRecomendacao = useCallback(() => {
+    const dose = parseFloat(pacienteIn.doseMg);
+    const intSem = parseFloat(pacienteIn.intervaloSemanas);
+    const cmax = parseFloat(pacienteIn.cmaxObs);
+    const cmin = parseFloat(pacienteIn.cminObs);
+    const cavg = parseFloat(pacienteIn.cavgObs);
+    if (!isFinite(dose) || dose <= 0) return;
+    if (!isFinite(intSem) || intSem <= 0) return;
+    const haAlguma = isFinite(cmax) || isFinite(cmin) || isFinite(cavg);
+    if (!haAlguma) return;
+    const r = recomendarIntervalo({
+      doseMg: dose,
+      intervaloDias: intSem * 7,
+      cmaxObsNgdl: isFinite(cmax) ? cmax : undefined,
+      cminObsNgdl: isFinite(cmin) ? cmin : undefined,
+      cavgObsNgdl: isFinite(cavg) ? cavg : undefined,
+    });
+    setRecomendacao(r);
+  }, [pacienteIn]);
 
   const executarMC = useCallback(async () => {
     setIsCalculating(true);
@@ -570,6 +604,10 @@ export default function Simulator() {
             <Tabs value={aba} onValueChange={setAba}>
               <TabsList className="mb-4">
                 <TabsTrigger value="grafico" data-testid="tab-grafico">Gráfico ao longo do tempo</TabsTrigger>
+                <TabsTrigger value="paciente" data-testid="tab-paciente">
+                  <UserCog className="w-3.5 h-3.5 mr-1.5" />
+                  Ajustar para um paciente
+                </TabsTrigger>
                 <TabsTrigger value="info" data-testid="tab-info">Como funciona</TabsTrigger>
               </TabsList>
 
@@ -721,6 +759,275 @@ export default function Simulator() {
                 {/* Aviso clínico */}
                 <div className="rounded-xl border border-amber-500/20 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-700 dark:text-amber-300">
                   <strong>Importante:</strong> esta ferramenta é apenas educacional. Não substitui consulta médica, exames de sangue, nem ajuste individualizado de tratamento. O ajuste real de dose deve ser feito com base em exames laboratoriais reais e avaliação médica.
+                </div>
+              </TabsContent>
+
+              <TabsContent value="paciente" className="space-y-4">
+                <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
+                  {/* Coluna 1: formulário */}
+                  <Card className="lg:col-span-1">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <UserCog className="w-4 h-4 text-primary" />
+                        Dados do paciente
+                      </CardTitle>
+                      <CardDescription className="text-xs">
+                        Informe a dose atual, o intervalo entre injeções e <strong>pelo menos um valor laboratorial</strong> (pico ou vale) medido após o paciente já estar estabilizado (a partir da 4ª-5ª injeção).
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Dose atual (mg)</Label>
+                          <Input
+                            data-testid="input-dose"
+                            type="number" inputMode="decimal" min={50} step={50}
+                            value={pacienteIn.doseMg}
+                            onChange={e => setPacienteIn(p => ({ ...p, doseMg: e.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Intervalo atual (semanas)</Label>
+                          <Input
+                            data-testid="input-intervalo"
+                            type="number" inputMode="decimal" min={4} step={1}
+                            value={pacienteIn.intervaloSemanas}
+                            onChange={e => setPacienteIn(p => ({ ...p, intervaloSemanas: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+
+                      <Separator />
+
+                      <div className="space-y-3">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+                          Medidas laboratoriais (ng/dL)
+                        </p>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs flex items-center justify-between">
+                            <span>Pico medido (Cmax)</span>
+                            <span className="text-[10px] text-muted-foreground">~1 sem após injeção</span>
+                          </Label>
+                          <Input
+                            data-testid="input-cmax"
+                            type="number" inputMode="decimal" min={0} step={10}
+                            placeholder="ex.: 950"
+                            value={pacienteIn.cmaxObs}
+                            onChange={e => setPacienteIn(p => ({ ...p, cmaxObs: e.target.value }))}
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs flex items-center justify-between">
+                            <span>Vale medido (Cmin)</span>
+                            <span className="text-[10px] text-muted-foreground">imediatamente antes da próxima dose</span>
+                          </Label>
+                          <Input
+                            data-testid="input-cmin"
+                            type="number" inputMode="decimal" min={0} step={10}
+                            placeholder="ex.: 380"
+                            value={pacienteIn.cminObs}
+                            onChange={e => setPacienteIn(p => ({ ...p, cminObs: e.target.value }))}
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs flex items-center justify-between">
+                            <span>Concentração média (opcional)</span>
+                            <span className="text-[10px] text-muted-foreground">se conhecida</span>
+                          </Label>
+                          <Input
+                            data-testid="input-cavg"
+                            type="number" inputMode="decimal" min={0} step={10}
+                            placeholder="opcional"
+                            value={pacienteIn.cavgObs}
+                            onChange={e => setPacienteIn(p => ({ ...p, cavgObs: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+
+                      <Button
+                        data-testid="button-recomendar"
+                        className="w-full"
+                        onClick={calcularRecomendacao}
+                      >
+                        Calcular intervalo ideal
+                      </Button>
+
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        O sistema usa as medidas reais para estimar a sensibilidade individual deste paciente
+                        (quanto a testosterona dele sobe com cada mg de dose) e simula como ficariam o pico
+                        e o vale em diferentes intervalos.
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  {/* Coluna 2-3: resultado */}
+                  <div className="lg:col-span-2 space-y-4">
+                    {!recomendacao ? (
+                      <Card className="border-dashed">
+                        <CardContent className="py-12 text-center text-sm text-muted-foreground">
+                          <UserCog className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                          <p>Preencha os dados do paciente à esquerda e clique em <strong className="text-foreground">"Calcular intervalo ideal"</strong>.</p>
+                          <p className="text-xs mt-2">É necessário pelo menos uma medida (pico, vale ou média).</p>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <>
+                        {/* Recomendação principal */}
+                        <Card className="border-emerald-500/40 bg-emerald-50/30 dark:bg-emerald-950/10">
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                              Intervalo recomendado para este paciente
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            <div className="flex items-baseline gap-3">
+                              <span className="text-3xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+                                {(recomendacao.intervaloRecomendadoDias / 7).toFixed(0)}
+                              </span>
+                              <span className="text-base text-muted-foreground">semanas</span>
+                              <span className="text-sm text-muted-foreground">
+                                ({recomendacao.intervaloRecomendadoDias} dias) — dose {parseFloat(pacienteIn.doseMg)} mg
+                              </span>
+                            </div>
+                            <p className="text-sm text-foreground leading-relaxed">{recomendacao.justificativa}</p>
+
+                            {(() => {
+                              const rec = recomendacao.intervalosAvaliados.find(
+                                a => a.intervaloDias === recomendacao.intervaloRecomendadoDias
+                              )!;
+                              return (
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+                                  <div className="rounded-lg bg-background border border-border p-2">
+                                    <div className="text-[10px] text-muted-foreground">Pico previsto</div>
+                                    <div className="text-sm font-semibold tabular-nums">{Math.round(rec.cmaxSSNgdl)} ng/dL</div>
+                                  </div>
+                                  <div className="rounded-lg bg-background border border-border p-2">
+                                    <div className="text-[10px] text-muted-foreground">Vale previsto</div>
+                                    <div className="text-sm font-semibold tabular-nums">{Math.round(rec.cminSSNgdl)} ng/dL</div>
+                                  </div>
+                                  <div className="rounded-lg bg-background border border-border p-2">
+                                    <div className="text-[10px] text-muted-foreground">Média prevista</div>
+                                    <div className="text-sm font-semibold tabular-nums">{Math.round(rec.cavgSSNgdl)} ng/dL</div>
+                                  </div>
+                                  <div className="rounded-lg bg-background border border-border p-2">
+                                    <div className="text-[10px] text-muted-foreground">Tempo na faixa</div>
+                                    <div className={`text-sm font-semibold tabular-nums ${rec.percentEugonadal >= 90 ? "text-emerald-600" : rec.percentEugonadal >= 70 ? "text-amber-600" : "text-rose-600"}`}>
+                                      {rec.percentEugonadal.toFixed(0)}%
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </CardContent>
+                        </Card>
+
+                        {/* Sensibilidade individual */}
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">Perfil deste paciente</CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-2 text-sm">
+                            <div className="flex items-center justify-between">
+                              <span className="text-muted-foreground">Sensibilidade à dose</span>
+                              <span className="font-mono font-semibold">
+                                {(recomendacao.fatorIndividual * 100).toFixed(0)}% da média populacional
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                              Este paciente {recomendacao.classificacaoSensibilidade}. Com base nos exames informados,
+                              cada miligrama de undecilato gera <strong className="text-foreground">{(recomendacao.fatorIndividual).toFixed(2)}×</strong> a concentração
+                              que geraria em um paciente de resposta típica.
+                            </p>
+                            <Separator className="my-2" />
+                            <div className="grid grid-cols-3 gap-2 text-xs">
+                              <div>
+                                <div className="text-[10px] text-muted-foreground">Pico no regime atual</div>
+                                <div className="font-mono font-medium">{Math.round(recomendacao.cenarioAtual.cmaxSSNgdl)} ng/dL</div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-muted-foreground">Vale no regime atual</div>
+                                <div className="font-mono font-medium">{Math.round(recomendacao.cenarioAtual.cminSSNgdl)} ng/dL</div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-muted-foreground">Tempo na faixa atual</div>
+                                <div className={`font-mono font-medium ${recomendacao.cenarioAtual.percentEugonadal >= 90 ? "text-emerald-600" : recomendacao.cenarioAtual.percentEugonadal >= 70 ? "text-amber-600" : "text-rose-600"}`}>
+                                  {recomendacao.cenarioAtual.percentEugonadal.toFixed(0)}%
+                                </div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+
+                        {/* Tabela comparativa de intervalos */}
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">Comparação de intervalos (para este paciente)</CardTitle>
+                            <CardDescription className="text-xs">
+                              Predição de pico, vale e tempo na faixa eugonádica para diferentes espaçamentos entre as doses, mantendo a dose atual.
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent className="p-0">
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead className="bg-muted/50 text-muted-foreground">
+                                  <tr>
+                                    <th className="text-left p-2 font-medium">Intervalo</th>
+                                    <th className="text-right p-2 font-medium">Pico (Cmax)</th>
+                                    <th className="text-right p-2 font-medium">Vale (Cmin)</th>
+                                    <th className="text-right p-2 font-medium">Média (Cavg)</th>
+                                    <th className="text-right p-2 font-medium">% na faixa</th>
+                                    <th className="text-center p-2 font-medium">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {recomendacao.intervalosAvaliados.map(a => {
+                                    const eRecomendado = a.intervaloDias === recomendacao.intervaloRecomendadoDias;
+                                    const statusBadge =
+                                      a.status === "ideal" ? <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">ideal</Badge> :
+                                      a.status === "aceitavel" ? <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20">aceitável</Badge> :
+                                      a.status === "vale_baixo" ? <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30">vale baixo</Badge> :
+                                      a.status === "pico_alto" ? <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30">pico alto</Badge> :
+                                      <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30">fora</Badge>;
+                                    return (
+                                      <tr
+                                        key={a.intervaloDias}
+                                        className={`border-t border-border ${eRecomendado ? "bg-emerald-500/5" : ""}`}
+                                      >
+                                        <td className="p-2 font-medium">
+                                          {eRecomendado && <span className="text-emerald-600 dark:text-emerald-400 mr-1">→</span>}
+                                          {a.intervaloSemanas.toFixed(0)} sem
+                                        </td>
+                                        <td className={`text-right p-2 font-mono ${a.cmaxSSNgdl > EUGONADAL_MAX_NGDL ? "text-rose-600 dark:text-rose-400" : ""}`}>
+                                          {Math.round(a.cmaxSSNgdl)}
+                                        </td>
+                                        <td className={`text-right p-2 font-mono ${a.cminSSNgdl < EUGONADAL_MIN_NGDL ? "text-amber-600 dark:text-amber-400" : ""}`}>
+                                          {Math.round(a.cminSSNgdl)}
+                                        </td>
+                                        <td className="text-right p-2 font-mono">{Math.round(a.cavgSSNgdl)}</td>
+                                        <td className="text-right p-2 font-mono">{a.percentEugonadal.toFixed(0)}%</td>
+                                        <td className="p-2 text-center">{statusBadge}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                            <div className="px-3 py-2 text-[11px] text-muted-foreground border-t border-border">
+                              Faixa eugonádica de referência: {EUGONADAL_MIN_NGDL}–{EUGONADAL_MAX_NGDL} ng/dL · Vale acima de {EUGONADAL_MIN_NGDL} = sem hipogonadismo entre doses.
+                            </div>
+                          </CardContent>
+                        </Card>
+
+                        <div className="rounded-xl border border-amber-500/20 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-700 dark:text-amber-300">
+                          <strong>Importante:</strong> a recomendação assume que as medidas informadas foram colhidas em estado estacionário (após a 4ª–5ª injeção) e usando o regime atual. Antes do estado estacionário, os valores ainda estão subindo e não refletem a sensibilidade real. Esta ferramenta é educacional — qualquer ajuste deve ser validado com novos exames e avaliação médica.
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </TabsContent>
 
