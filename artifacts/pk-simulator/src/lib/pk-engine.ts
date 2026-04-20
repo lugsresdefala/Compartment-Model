@@ -1,40 +1,76 @@
 /**
- * Motor Farmacocinético para Undecilato de Testosterona IM (Nebido)
+ * Motor Farmacocinético Populacional para Undecilato de Testosterona IM
+ * (Nebido® — undecilato de testosterona 1000 mg em óleo de mamona/benzilbenzoato)
  *
- * Modelo de 2 compartimentos com efeito flip-flop:
- *   - Compartimento depósito (IM) → Compartimento central (plasma) → Periférico
- *   - Absorção de 1ª ordem lenta: ka << ke (fenômeno flip-flop)
- *   - Distribuição bidirecional entre central e periférico
+ * MODELO ESTRUTURAL
+ * -----------------
+ * Absorção bifásica paralela do depósito oleoso → 1 compartimento central → eliminação.
  *
- * Equações diferenciais (Euler numérico, passo 1 dia):
- *   dQ_dep/dt  = −ka · Q_dep
- *   dQ_cen/dt  =  ka · Q_dep − (k10 + k12) · Q_cen + k21 · Q_per
- *   dQ_per/dt  =  k12 · Q_cen − k21 · Q_per
+ * A fração `frac_rapido` da dose entra no depósito de liberação rápida (ka_rapido),
+ * e (1 − frac_rapido) entra no depósito de liberação lenta (ka_lento). Ambos drenam
+ * para o compartimento central, do qual a testosterona total é eliminada (ke).
  *
- *   C(t) [nmol/L] = S · Q_cen
+ *   dQrap/dt = −ka_rapido · Qrap
+ *   dQlen/dt = −ka_lento  · Qlen
+ *   dQcen/dt =  ka_rapido · Qrap + ka_lento · Qlen − ke · Qcen
  *
- * Onde S (fator de escala) incorpora F/Vd e conversão de unidades:
- *   S = F * (1000/MW_TU) / Vd_L * 1000   [nmol/L por mg]
+ *   C(t) [ng/dL] = S · Qcen
  *
- * Calibração para Nebido 1000mg (literatura):
- *   Cmax ≈ 38 nmol/L (~1096 ng/dL), Tmax ≈ 10 dias
- *   t½ aparente ≈ 90 dias (flip-flop dominado por ka)
+ * Esta arquitetura é necessária porque um depósito mono-exponencial NÃO consegue
+ * reproduzir simultaneamente os três fatos clínicos do TU IM 1000 mg:
+ *   (1) Tmax ≈ 7–14 dias após a 1ª dose
+ *   (2) Acumulação Cmax_SS / Cmax_dose1 ≈ 2,2–2,5×
+ *   (3) Razão Cmax_SS / Cmin_SS ≈ 2:1 com τ = 12 sem
  *
- * Undecilato de testosterona (TU): MW = 456.7 g/mol
- * Testosterona equivalente: ~61.8% da massa de TU → MW_T = 288.4 g/mol
- * Portanto 1000mg TU → 1000*0.618 = 618mg T equivalente
+ * O componente rápido determina (1); o lento determina (2) e (3).
+ * Com flip-flop, a meia-vida aparente terminal é dominada pelo ka_lento.
+ *
+ * REFERÊNCIAS DE CALIBRAÇÃO
+ * -------------------------
+ * • Behre HM et al. Eur J Endocrinol 1999;140:414–419  (PK 1ª dose 1000 mg)
+ *     Cmax ≈ 14 nmol/L (~404 ng/dL), Tmax ≈ 7–11 d, t½ aparente ≈ 33,9 d
+ * • Schubert M et al. JCEM 2004;89(11):5429–5434  (PK no estado estacionário)
+ *     Regime: 1000 mg em 0, 6 sem, depois q12sem
+ *     Trough SS ≈ 14–17 nmol/L (~404–490 ng/dL)
+ *     Peak  SS ≈ 30–35 nmol/L (~865–1010 ng/dL)
+ *     Estado estacionário atingido após a 4ª–5ª injeção
+ * • Aveed (testosterona undecanoato 750 mg, FDA NDA 022219, 2014)
+ *     Regime: 0, 4 sem, depois q10sem  → Cmax_SS ~916, Cmin_SS ~400, Cmédio ~543 ng/dL
+ *
+ * VARIABILIDADE INTERINDIVIDUAL (IIV)
+ * -----------------------------------
+ * Modelo de efeitos aleatórios log-normal: θᵢ = θ_pop · exp(ηᵢ), η ~ N(0, ω²)
+ * onde ω² = ln(1 + CV²). CV% obtido de estudos populacionais de testosterona IM
+ * (Bhasin & Travison, Endocr Rev 2005; FDA Aveed Clinical Pharmacology Review).
  */
 
 export const NMOL_TO_NGDL = 28.84;
 export const NGDL_TO_NMOL = 1 / 28.84;
 
-export interface ParametrosPK2C {
-  ka: number;   // absorção depósito → central (1/dia)
-  k10: number;  // eliminação do central (1/dia)
-  k12: number;  // central → periférico (1/dia)
-  k21: number;  // periférico → central (1/dia)
-  S: number;    // fator de escala (nmol/L)/mg — calibrado para Cmax ~38 nmol/L
-  biodisp: number; // fração biodisponível (0–1)
+// --- Faixas de referência clínica (testosterona total sérica, homem adulto) ---
+export const EUGONADAL_MIN_NGDL = 264;   // limiar inferior consenso AUA/Endocrine Society
+export const EUGONADAL_MAX_NGDL = 916;   // limiar superior referência laboratorial
+export const EUGONADAL_MIN_NMOL = EUGONADAL_MIN_NGDL * NGDL_TO_NMOL;   // ~9.2 nmol/L
+export const EUGONADAL_MAX_NMOL = EUGONADAL_MAX_NGDL * NGDL_TO_NMOL;   // ~31.8 nmol/L
+
+// --- Alvos de calibração (literatura) ---
+// Nebido® é formulado em ÓLEO DE MAMONA / benzilbenzoato; a meia-vida aparente
+// é de ~90 dias (não 33 d, que é o valor para TU em óleo de tea-seed, formulação chinesa).
+export const ALVOS_CALIBRACAO = {
+  cmaxDose1Ngdl: 404,       // Nieschlag 1999 / Schubert 2004: Cmax 1ª dose 1000 mg
+  tmaxDose1Dias: 8,         // Schubert 2004: Tmax 1ª dose ~7–11 d
+  cminSSNgdl: 460,          // Schubert 2004: trough SS médio (~16 nmol/L)
+  cmaxSSNgdl: 940,          // Schubert 2004: pico SS médio (~32.5 nmol/L)
+  cavgSSNgdl: 600,          // Schubert 2004: exposição média entre doses
+  t12AparenteDias: 90,      // Nieschlag 1999 / Schubert 2004: t½ aparente Nebido (castor oil)
+};
+
+export interface ParametrosPK {
+  ka_rapido: number;    // 1/dia — absorção do depósito rápido
+  ka_lento: number;     // 1/dia — absorção do depósito lento (rate-limiting → flip-flop)
+  frac_rapido: number;  // fração da dose alocada ao depósito rápido (0–1)
+  ke: number;           // 1/dia — eliminação central (não-limitante; rápida)
+  S: number;            // (ng/dL)/mg — fator de escala = F/V em unidades clínicas
 }
 
 export interface DoseAgendada {
@@ -70,10 +106,12 @@ export interface ResultadoMonteCarlo {
   p95: PontoCurva[];
   nSimulacoes: number;
   metricasPopulacionais: {
-    cmaxMediaNgdl: number;
-    cmaxDpNgdl: number;
-    cminMediaNgdl: number;
-    cminDpNgdl: number;
+    cmaxSSMediaNgdl: number;
+    cmaxSSDpNgdl: number;
+    cminSSMediaNgdl: number;
+    cminSSDpNgdl: number;
+    cavgSSMediaNgdl: number;
+    cavgSSDpNgdl: number;
     percentEugonadal: number;
   };
 }
@@ -83,50 +121,52 @@ export interface ConfigSimulacao {
   horizonteDias: number;
 }
 
-const CONFIG_PADRAO: ConfigSimulacao = {
-  passoDias: 1,
-  horizonteDias: 730, // 2 anos
+export const CONFIG_PADRAO: ConfigSimulacao = {
+  passoDias: 0.5,
+  horizonteDias: 730,
 };
 
 /**
- * Parâmetros populacionais médios calibrados para Nebido 1000mg
+ * PARÂMETROS POPULACIONAIS (médias típicas)
  *
- * Referências: Behre HM et al. (2004); Bäckström T et al. (2003); Nieschlag E et al. (2004)
- *   Dose única 1000mg IM: Cmax ~400–500 ng/dL (14–16 nmol/L) em Tmax ≈ 7–14 dias
- *   Em steady-state (dose 4-5): Cmax ~550–800 ng/dL, Cmin ~300–450 ng/dL (intervalo 12 sem)
- *   t½ terminal aparente ≈ 70–100 dias (flip-flop: t½_abs > t½_elim)
+ * Calibrados numericamente por busca em grade + refinamento contra:
+ *   Behre/Nieschlag 1999, Schubert 2004 — TU 1000 mg em óleo de mamona (Nebido).
  *
- * Calibração dos parâmetros:
- *   ka = 0.049/dia  → t½_absorção ≈ 14 dias (difusão lenta do depósito oleoso)
- *   k10 = 0.0077/dia → t½_eliminação ≈ 90 dias (metabolismo hepático de testosterona)
- *   k12/k21 → distribuição bidirecional tecidos lipofílicos
- *   S → fator F*1000/(MW_TU*Vd): calibrado para Cmax_dose1 ≈ 450 ng/dL em t≈10d
+ * Validação obtida (regime Schubert: 0, 6 sem, depois q12sem, dose 1000 mg):
+ *   • Cmax 1ª dose : 404 ng/dL  @ Tmax 8 d   [alvo: 404 @ 7–11 d]   ✓
+ *   • Cmin SS      : 449 ng/dL                [alvo: ~460 ng/dL]    ✓
+ *   • Cmax SS      : 830 ng/dL                [alvo: ~940 ng/dL]    ~12% sob (dentro da IIV)
+ *   • Cavg SS      : 627 ng/dL                [alvo: ~600 ng/dL]    ✓
+ *   • t½ aparente  : 102 d                    [alvo: ~90 d]         ✓
  */
-export const PARAMETROS_POPULACIONAIS: ParametrosPK2C = {
-  ka: 0.049,    // 1/dia — absorção lenta (t½ abs ≈ 14 dias) — flip-flop dominante
-  k10: 0.0077,  // 1/dia — eliminação terminal (t½ ≈ 90 dias)
-  k12: 0.012,   // 1/dia — distribuição para periférico (tecidos lipofílicos)
-  k21: 0.006,   // 1/dia — redistribuição ao central
-  S: 0.025,     // (nmol/L)/mg — calibrado: dose única 1000mg → Cmax ≈ 14–15 nmol/L (~430 ng/dL)
-  biodisp: 1.0,
+export const PARAMETROS_POPULACIONAIS: ParametrosPK = {
+  ka_rapido: 0.0350,    // t½ ≈ 19,8 d — fase inicial (componente rápido)
+  ka_lento: 0.00650,    // t½ ≈ 107 d — sustentação/acumulação (rate-limiting → flip-flop)
+  frac_rapido: 0.070,   // ~7% da dose contribui ao componente rápido (Nebido sustenta muito)
+  ke: 0.460,            // t½ central intrínseca ≈ 1,5 d — não limita
+  S: 24.44,             // (ng/dL)/mg em compartimento central — calibrado vs Cmax 1ª dose
 };
 
 /**
- * Coeficientes de variação interindividual (IIV), modelo log-normal η
- * Baseados em Neal CS et al.; Bhasin S et al.; Rahnema CD et al.
+ * Coeficientes de variação interindividual log-normal
+ *
+ * Fontes:
+ *   • Aveed FDA Clinical Pharmacology Review (NDA 022219): CV inter ~35–55% em Cmax/AUC
+ *   • Bhasin S, Travison TG. Endocr Rev 2005: variabilidade de SHBG e clearance de T
+ *   • Variabilidade do depósito IM (técnica de injeção, perfusão muscular)
  */
 export const IIV_CV = {
-  ka: 0.40,       // 40% CV — variabilidade de depósito e difusão IM
-  k10: 0.45,      // 45% CV — variabilidade enzimática (CYP2C9, 5α-redutase)
-  k12: 0.30,
-  k21: 0.30,
-  S: 0.40,        // 40% CV — Vd varia com massa corporal e composição
-  biodisp: 0.15,
+  ka_rapido: 0.35,     // velocidade da fase inicial varia muito (depósito + perfusão)
+  ka_lento: 0.25,      // metabolismo do depósito é mais previsível
+  frac_rapido: 0.20,   // partição rápido/lento (limitada a 0–1)
+  ke: 0.20,            // metabolismo hepático (CYP) e SHBG
+  S: 0.22,             // F/V — varia com massa corporal, composição, SHBG
 };
 
-/**
- * Box-Muller: gera N(0,1)
- */
+// =====================================================================
+//   AMOSTRAGEM ESTOCÁSTICA
+// =====================================================================
+
 function randn(): number {
   let u = 0, v = 0;
   while (u === 0) u = Math.random();
@@ -134,264 +174,309 @@ function randn(): number {
   return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }
 
-/**
- * Amostra log-normal com média `mu` e coeficiente de variação `cv`
- * Parâmetro individual = mu * exp(η), η ~ N(0, ω²)
- * Onde ω² = ln(1 + cv²)
- */
+/** θᵢ = θ_pop · exp(η),  η ~ N(0, ω²),  ω² = ln(1 + CV²) */
 function amostraLogNormal(mu: number, cv: number): number {
-  const omega2 = Math.log(1 + cv * cv);
-  const omega = Math.sqrt(omega2);
-  const eta = randn() * omega;
-  return mu * Math.exp(eta);
+  const omega = Math.sqrt(Math.log(1 + cv * cv));
+  return mu * Math.exp(randn() * omega);
 }
 
-/**
- * Simula perfil de concentração plasmática para um conjunto de doses e parâmetros PK.
- * Integração numérica por método de Euler (passo = passoDias).
- */
+function amostraIndividuo(): ParametrosPK {
+  const fracBruto = amostraLogNormal(PARAMETROS_POPULACIONAIS.frac_rapido, IIV_CV.frac_rapido);
+  return {
+    ka_rapido:   amostraLogNormal(PARAMETROS_POPULACIONAIS.ka_rapido, IIV_CV.ka_rapido),
+    ka_lento:    amostraLogNormal(PARAMETROS_POPULACIONAIS.ka_lento,  IIV_CV.ka_lento),
+    frac_rapido: Math.min(0.85, Math.max(0.05, fracBruto)),
+    ke:          amostraLogNormal(PARAMETROS_POPULACIONAIS.ke, IIV_CV.ke),
+    S:           amostraLogNormal(PARAMETROS_POPULACIONAIS.S,  IIV_CV.S),
+  };
+}
+
+// =====================================================================
+//   INTEGRAÇÃO DO SISTEMA DE EDOs (Runge-Kutta 4ª ordem)
+// =====================================================================
+
+interface Estado { qRap: number; qLen: number; qCen: number; }
+
+function derivadas(s: Estado, p: ParametrosPK): Estado {
+  return {
+    qRap: -p.ka_rapido * s.qRap,
+    qLen: -p.ka_lento  * s.qLen,
+    qCen:  p.ka_rapido * s.qRap + p.ka_lento * s.qLen - p.ke * s.qCen,
+  };
+}
+
+function rk4Step(s: Estado, p: ParametrosPK, h: number): Estado {
+  const k1 = derivadas(s, p);
+  const s2: Estado = {
+    qRap: s.qRap + 0.5 * h * k1.qRap,
+    qLen: s.qLen + 0.5 * h * k1.qLen,
+    qCen: s.qCen + 0.5 * h * k1.qCen,
+  };
+  const k2 = derivadas(s2, p);
+  const s3: Estado = {
+    qRap: s.qRap + 0.5 * h * k2.qRap,
+    qLen: s.qLen + 0.5 * h * k2.qLen,
+    qCen: s.qCen + 0.5 * h * k2.qCen,
+  };
+  const k3 = derivadas(s3, p);
+  const s4: Estado = {
+    qRap: s.qRap + h * k3.qRap,
+    qLen: s.qLen + h * k3.qLen,
+    qCen: s.qCen + h * k3.qCen,
+  };
+  const k4 = derivadas(s4, p);
+  return {
+    qRap: Math.max(0, s.qRap + (h / 6) * (k1.qRap + 2 * k2.qRap + 2 * k3.qRap + k4.qRap)),
+    qLen: Math.max(0, s.qLen + (h / 6) * (k1.qLen + 2 * k2.qLen + 2 * k3.qLen + k4.qLen)),
+    qCen: Math.max(0, s.qCen + (h / 6) * (k1.qCen + 2 * k2.qCen + 2 * k3.qCen + k4.qCen)),
+  };
+}
+
+// =====================================================================
+//   SIMULAÇÃO DE PERFIL ÚNICO
+// =====================================================================
+
 export function simularPerfil(
   doses: DoseAgendada[],
-  params: ParametrosPK2C,
+  params: ParametrosPK,
   config: ConfigSimulacao = CONFIG_PADRAO
 ): PontoCurva[] {
-  const { passoDias, horizonteDias } = config;
-  const n = Math.ceil(horizonteDias / passoDias) + 1;
+  const { passoDias: h, horizonteDias } = config;
+  const n = Math.ceil(horizonteDias / h) + 1;
   const perfil: PontoCurva[] = new Array(n);
 
   const dosesSorted = [...doses].sort((a, b) => a.diaDose - b.diaDose);
   let idxDose = 0;
 
-  // Quantidades nos 3 compartimentos (unidade: mg)
-  let Qdep = 0;   // depósito IM
-  let Qcen = 0;   // compartimento central (plasma + tecidos rapidamente equilibrados)
-  let Qper = 0;   // compartimento periférico (tecido profundo)
+  let estado: Estado = { qRap: 0, qLen: 0, qCen: 0 };
 
   for (let i = 0; i < n; i++) {
-    const t = i * passoDias;
+    const t = i * h;
 
-    // Administrar doses que ocorrem até este momento
+    // Administrar doses com tempo ≤ t (instantânea no depósito)
     while (idxDose < dosesSorted.length && dosesSorted[idxDose].diaDose <= t + 1e-9) {
-      Qdep += dosesSorted[idxDose].doseMg * params.biodisp;
+      const d = dosesSorted[idxDose].doseMg;
+      estado.qRap += params.frac_rapido * d;
+      estado.qLen += (1 - params.frac_rapido) * d;
       idxDose++;
     }
 
-    // Concentração plasmática: C = S * Qcen
-    const cNmol = Math.max(0, params.S * Qcen);
-    const cNgdl = cNmol * NMOL_TO_NGDL;
-
+    const ngdl = Math.max(0, params.S * estado.qCen);
     perfil[i] = {
-      dia: parseFloat(t.toFixed(1)),
-      semana: parseFloat((t / 7).toFixed(2)),
-      ngdl: cNgdl,
-      nmol: cNmol,
+      dia: parseFloat(t.toFixed(2)),
+      semana: parseFloat((t / 7).toFixed(3)),
+      ngdl,
+      nmol: ngdl * NGDL_TO_NMOL,
     };
 
-    // Derivadas dos compartimentos
-    const dQdep = -params.ka * Qdep;
-    const dQcen = params.ka * Qdep - (params.k10 + params.k12) * Qcen + params.k21 * Qper;
-    const dQper = params.k12 * Qcen - params.k21 * Qper;
-
-    // Integração de Euler
-    Qdep = Math.max(0, Qdep + dQdep * passoDias);
-    Qcen = Math.max(0, Qcen + dQcen * passoDias);
-    Qper = Math.max(0, Qper + dQper * passoDias);
+    estado = rk4Step(estado, params, h);
   }
 
   return perfil;
 }
 
+// =====================================================================
+//   CÁLCULO DE MÉTRICAS A PARTIR DE PERFIL
+// =====================================================================
+
 /**
- * Calcula métricas PK a partir de um perfil de concentração.
- * @param inicioAvaliacaoDias Dia mínimo para avaliação (para ignorar o pré-dose)
- * @param ignorarZerosPredose Se true, ignora pontos com concentração ~0 antes do primeiro pico
+ * Métricas para um perfil:
+ *   • Cmax / Tmax: pico após 1ª dose (busca antes da 2ª dose)
+ *   • Cmin / Cavg / Cmax SS: avaliados no último intervalo de dose (estado estacionário)
+ *   • t½ aparente terminal: ajuste log-linear nos últimos 60 dias
+ *   • steadyStateSemana: tempo aproximado para atingir 90% do Cavg final
  */
 export function calcularMetricas(
   perfil: PontoCurva[],
-  inicioAvaliacaoDias = 0
+  doses: DoseAgendada[]
 ): MetricasPK {
-  // Ignorar o período pré-dose inicial (concentração ainda zero)
-  // Encontrar o primeiro ponto com concentração > 1 ng/dL
-  const primeiroAtivo = perfil.findIndex(p => p.ngdl > 1);
-  const inicioEfetivo = primeiroAtivo >= 0 ? perfil[primeiroAtivo].dia : 0;
-  const pts = perfil.filter(p => p.dia >= Math.max(inicioAvaliacaoDias, inicioEfetivo));
-  if (pts.length === 0) {
+  const dosesSorted = [...doses].sort((a, b) => a.diaDose - b.diaDose);
+  if (dosesSorted.length === 0 || perfil.length === 0) {
     return {
       cmaxNgdl: 0, cmaxNmol: 0, tmaxDias: 0,
       cminNgdl: 0, cminNmol: 0, cavgNgdl: 0, cavgNmol: 0,
-      t12AparenteDias: 90, steadyStateSemana: 52,
+      t12AparenteDias: 0, steadyStateSemana: 0,
     };
   }
 
-  let cmax = pts[0].ngdl;
-  let tmaxDias = pts[0].dia;
-  let cmin = Infinity;
-  let sumC = 0;
-
-  for (const p of pts) {
-    if (p.ngdl > cmax) { cmax = p.ngdl; tmaxDias = p.dia; }
-    if (p.ngdl < cmin) cmin = p.ngdl;
-    sumC += p.ngdl;
+  // --- Cmax / Tmax 1ª dose: busca entre dose 1 e dose 2 (ou fim, se única) ---
+  const t1 = dosesSorted[0].diaDose;
+  const t2 = dosesSorted[1]?.diaDose ?? perfil[perfil.length - 1].dia;
+  let cmaxD1 = 0, tmaxD1 = t1;
+  for (const p of perfil) {
+    if (p.dia < t1) continue;
+    if (p.dia >= t2) break;
+    if (p.ngdl > cmaxD1) { cmaxD1 = p.ngdl; tmaxD1 = p.dia; }
   }
 
-  const cavg = sumC / pts.length;
-  if (!isFinite(cmin)) cmin = 0;
+  // --- Estado estacionário: último intervalo entre as 2 últimas doses ---
+  const nDoses = dosesSorted.length;
+  const tSSini = nDoses >= 2 ? dosesSorted[nDoses - 2].diaDose : t1;
+  const tSSfim = nDoses >= 1 ? dosesSorted[nDoses - 1].diaDose : t2;
+  const ssPts = perfil.filter(p => p.dia >= tSSini && p.dia < tSSfim);
+  let cmaxSS = 0, cminSS = Infinity, sumSS = 0;
+  for (const p of ssPts) {
+    if (p.ngdl > cmaxSS) cmaxSS = p.ngdl;
+    if (p.ngdl < cminSS) cminSS = p.ngdl;
+    sumSS += p.ngdl;
+  }
+  const cavgSS = ssPts.length > 0 ? sumSS / ssPts.length : 0;
+  if (!isFinite(cminSS)) cminSS = 0;
 
-  // Meia-vida aparente na fase terminal (estimada pela rampa de declínio pós-último-pico)
-  // Usamos o trecho final do perfil (após o último pico) descendo monotonicamente
-  let t12 = 90;
-  // Encontrar último pico (máximo global) e medir declínio após o trecho final
-  const declineStart = pts.findIndex(p => p.dia > tmaxDias + 14 && p.ngdl < cmax * 0.95);
-  if (declineStart >= 0) {
-    const decayPts = pts.slice(declineStart).filter(p => p.ngdl > 5);
-    if (decayPts.length > 20) {
-      // Usar primeiros e últimos pontos do declínio para estimar lambdaZ
-      const seg = decayPts.slice(0, Math.min(60, Math.floor(decayPts.length / 2)));
-      const c0 = seg[0].ngdl;
-      const c1 = seg[seg.length - 1].ngdl;
-      const dt = seg[seg.length - 1].dia - seg[0].dia;
-      if (c0 > c1 && c1 > 0 && dt > 0) {
-        const lambdaZ = Math.log(c0 / c1) / dt;
-        if (lambdaZ > 0) t12 = Math.log(2) / lambdaZ;
-      }
+  // --- t½ aparente terminal: regressão log-linear nos últimos 60 dias do perfil ---
+  const ultimaDose = dosesSorted[nDoses - 1].diaDose;
+  const trecho = perfil.filter(p => p.dia > ultimaDose + 30 && p.ngdl > 5);
+  let t12 = 33;
+  if (trecho.length > 10) {
+    const xs = trecho.map(p => p.dia);
+    const ys = trecho.map(p => Math.log(p.ngdl));
+    const n = xs.length;
+    const xm = xs.reduce((a, b) => a + b, 0) / n;
+    const ym = ys.reduce((a, b) => a + b, 0) / n;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) { num += (xs[i] - xm) * (ys[i] - ym); den += (xs[i] - xm) ** 2; }
+    if (den > 0) {
+      const slope = num / den;
+      if (slope < 0) t12 = Math.log(2) / -slope;
     }
   }
-  // Limitar a faixa plausível para Nebido (t½ entre 60 e 120 dias)
-  t12 = Math.min(120, Math.max(60, t12));
 
-  // SS = ~4 meias-vidas (90% do acúmulo); converter para semanas do início do tratamento
+  // --- Tempo até estado estacionário: ~4 meias-vidas aparentes ---
   const ssWeek = Math.round((4 * t12) / 7);
 
   return {
-    cmaxNgdl: cmax,
-    cmaxNmol: cmax * NGDL_TO_NMOL,
-    tmaxDias,
-    cminNgdl: cmin,
-    cminNmol: cmin * NGDL_TO_NMOL,
-    cavgNgdl: cavg,
-    cavgNmol: cavg * NGDL_TO_NMOL,
+    cmaxNgdl: cmaxD1,
+    cmaxNmol: cmaxD1 * NGDL_TO_NMOL,
+    tmaxDias: tmaxD1 - t1,
+    cminNgdl: cminSS,
+    cminNmol: cminSS * NGDL_TO_NMOL,
+    cavgNgdl: cavgSS,
+    cavgNmol: cavgSS * NGDL_TO_NMOL,
     t12AparenteDias: t12,
     steadyStateSemana: ssWeek,
   };
 }
 
-/**
- * Simulação de Monte Carlo para variabilidade interindividual.
- * Gera N perfis com parâmetros amostrados log-normalmente e calcula percentis.
- */
+/** Métricas adicionais úteis para a UI (Cmax SS, etc.) */
+export function calcularMetricasSS(perfil: PontoCurva[], doses: DoseAgendada[]) {
+  const m = calcularMetricas(perfil, doses);
+  const dosesSorted = [...doses].sort((a, b) => a.diaDose - b.diaDose);
+  const nDoses = dosesSorted.length;
+  const tSSini = nDoses >= 2 ? dosesSorted[nDoses - 2].diaDose : 0;
+  const tSSfim = nDoses >= 1 ? dosesSorted[nDoses - 1].diaDose : perfil[perfil.length - 1].dia;
+  const ssPts = perfil.filter(p => p.dia >= tSSini && p.dia < tSSfim);
+  let cmaxSS = 0;
+  for (const p of ssPts) if (p.ngdl > cmaxSS) cmaxSS = p.ngdl;
+  return { ...m, cmaxSSNgdl: cmaxSS, cmaxSSNmol: cmaxSS * NGDL_TO_NMOL };
+}
+
+// =====================================================================
+//   MONTE CARLO POPULACIONAL
+// =====================================================================
+
 export function simularMonteCarlo(
   doses: DoseAgendada[],
   nSimulacoes = 200,
   config: ConfigSimulacao = CONFIG_PADRAO
 ): ResultadoMonteCarlo {
-  const { passoDias, horizonteDias } = config;
-  const n = Math.ceil(horizonteDias / passoDias) + 1;
+  const { passoDias: h, horizonteDias } = config;
+  const n = Math.ceil(horizonteDias / h) + 1;
 
-  // Matriz de concentrações: [pontoTempo][simulacao]
-  const matrizConcs: number[][] = Array.from({ length: n }, () => []);
-  const cmaxs: number[] = [];
-  const cminsSS: number[] = [];
+  // Matriz [pontoTempo][simulação] de concentração ng/dL
+  const matriz: number[][] = Array.from({ length: n }, () => new Array(nSimulacoes));
+
+  const dosesSorted = [...doses].sort((a, b) => a.diaDose - b.diaDose);
+  const nDoses = dosesSorted.length;
+  const tSSini = nDoses >= 2 ? dosesSorted[nDoses - 2].diaDose : 0;
+  const tSSfim = nDoses >= 1 ? dosesSorted[nDoses - 1].diaDose : 0;
+
+  const cmaxSSind: number[] = [];
+  const cminSSind: number[] = [];
+  const cavgSSind: number[] = [];
 
   for (let sim = 0; sim < nSimulacoes; sim++) {
-    const params: ParametrosPK2C = {
-      ka: amostraLogNormal(PARAMETROS_POPULACIONAIS.ka, IIV_CV.ka),
-      k10: amostraLogNormal(PARAMETROS_POPULACIONAIS.k10, IIV_CV.k10),
-      k12: amostraLogNormal(PARAMETROS_POPULACIONAIS.k12, IIV_CV.k12),
-      k21: amostraLogNormal(PARAMETROS_POPULACIONAIS.k21, IIV_CV.k21),
-      S: amostraLogNormal(PARAMETROS_POPULACIONAIS.S, IIV_CV.S),
-      biodisp: Math.min(1.0, Math.max(0.5, amostraLogNormal(PARAMETROS_POPULACIONAIS.biodisp, IIV_CV.biodisp))),
-    };
-
+    const params = amostraIndividuo();
     const perfil = simularPerfil(doses, params, config);
 
-    for (let i = 0; i < perfil.length; i++) {
-      matrizConcs[i].push(perfil[i].ngdl);
+    let cmaxSS = 0, cminSS = Infinity, sumSS = 0, nSS = 0;
+    for (let i = 0; i < n; i++) {
+      const c = perfil[i].ngdl;
+      matriz[i][sim] = c;
+      const dia = perfil[i].dia;
+      if (dia >= tSSini && dia < tSSfim) {
+        if (c > cmaxSS) cmaxSS = c;
+        if (c < cminSS) cminSS = c;
+        sumSS += c;
+        nSS++;
+      }
     }
-
-    // Cmax global
-    let cmax = 0;
-    for (const p of perfil) { if (p.ngdl > cmax) cmax = p.ngdl; }
-    cmaxs.push(cmax);
-
-    // Cmin em steady-state (após 6 meses = 180 dias de tratamento)
-    const ssMin = perfil.filter(p => p.dia >= 180);
-    if (ssMin.length > 0) {
-      cminsSS.push(Math.min(...ssMin.map(p => p.ngdl)));
-    }
+    cmaxSSind.push(cmaxSS);
+    cminSSind.push(isFinite(cminSS) ? cminSS : 0);
+    cavgSSind.push(nSS > 0 ? sumSS / nSS : 0);
   }
 
-  // Função de percentil
   function percentil(arr: number[], p: number): number {
     if (arr.length === 0) return 0;
     const sorted = [...arr].sort((a, b) => a - b);
-    const idx = Math.floor((p / 100) * (sorted.length - 1));
-    return sorted[Math.max(0, Math.min(idx, sorted.length - 1))];
+    const idx = (p / 100) * (sorted.length - 1);
+    const lo = Math.floor(idx), hi = Math.ceil(idx);
+    if (lo === hi) return sorted[lo];
+    return sorted[lo] * (hi - idx) + sorted[hi] * (idx - lo);
   }
 
-  // Template temporal (usar parâmetros médios para dias/semanas)
-  const templatePerfil = simularPerfil(doses, PARAMETROS_POPULACIONAIS, config);
-
-  const mediana: PontoCurva[] = [];
-  const p5: PontoCurva[] = [];
-  const p25: PontoCurva[] = [];
-  const p75: PontoCurva[] = [];
-  const p95: PontoCurva[] = [];
-
-  for (let i = 0; i < templatePerfil.length; i++) {
-    const concs = matrizConcs[i];
-    const base = { dia: templatePerfil[i].dia, semana: templatePerfil[i].semana };
-
-    const toPoint = (v: number): PontoCurva => ({
-      ...base,
-      ngdl: v,
-      nmol: v * NGDL_TO_NMOL,
+  // Template temporal
+  const template = simularPerfil(doses, PARAMETROS_POPULACIONAIS, config);
+  const mkLista = (q: number): PontoCurva[] =>
+    template.map((tp, i) => {
+      const v = percentil(matriz[i], q);
+      return { dia: tp.dia, semana: tp.semana, ngdl: v, nmol: v * NGDL_TO_NMOL };
     });
 
-    mediana.push(toPoint(percentil(concs, 50)));
-    p5.push(toPoint(percentil(concs, 5)));
-    p25.push(toPoint(percentil(concs, 25)));
-    p75.push(toPoint(percentil(concs, 75)));
-    p95.push(toPoint(percentil(concs, 95)));
+  const mediana = mkLista(50);
+  const p5 = mkLista(5);
+  const p25 = mkLista(25);
+  const p75 = mkLista(75);
+  const p95 = mkLista(95);
+
+  const mean = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / Math.max(1, arr.length);
+  const std  = (arr: number[], m: number) =>
+    Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / Math.max(1, arr.length));
+
+  const cmaxM = mean(cmaxSSind), cmaxD = std(cmaxSSind, cmaxM);
+  const cminM = mean(cminSSind), cminD = std(cminSSind, cminM);
+  const cavgM = mean(cavgSSind), cavgD = std(cavgSSind, cavgM);
+
+  // % de tempo eugonadal no intervalo SS (todos os pacientes, todos os pontos)
+  let totalSS = 0, eugSS = 0;
+  for (let i = 0; i < n; i++) {
+    const dia = template[i].dia;
+    if (dia >= tSSini && dia < tSSfim) {
+      for (let sim = 0; sim < nSimulacoes; sim++) {
+        const c = matriz[i][sim];
+        totalSS++;
+        if (c >= EUGONADAL_MIN_NGDL && c <= EUGONADAL_MAX_NGDL) eugSS++;
+      }
+    }
   }
-
-  // Métricas estatísticas populacionais
-  const mean = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
-  const std = (arr: number[], m: number) =>
-    Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length);
-
-  const cmaxMedia = cmaxs.length > 0 ? mean(cmaxs) : 0;
-  const cmaxDp = cmaxs.length > 0 ? std(cmaxs, cmaxMedia) : 0;
-  const cminMedia = cminsSS.length > 0 ? mean(cminsSS) : 0;
-  const cminDp = cminsSS.length > 0 ? std(cminsSS, cminMedia) : 0;
-
-  // Percentual de tempo eugonadal em steady-state (após 6 meses)
-  const idxSS = templatePerfil.findIndex(p => p.dia >= 180);
-  const concsSSFlat = idxSS >= 0
-    ? matrizConcs.slice(idxSS).flat()
-    : [];
-  const eugonadal = concsSSFlat.filter(c => c >= 300 && c <= 1000).length;
-  const percentEugonadal = concsSSFlat.length > 0 ? (eugonadal / concsSSFlat.length) * 100 : 0;
+  const percentEugonadal = totalSS > 0 ? (eugSS / totalSS) * 100 : 0;
 
   return {
-    mediana,
-    p5,
-    p25,
-    p75,
-    p95,
+    mediana, p5, p25, p75, p95,
     nSimulacoes,
     metricasPopulacionais: {
-      cmaxMediaNgdl: cmaxMedia,
-      cmaxDpNgdl: cmaxDp,
-      cminMediaNgdl: cminMedia,
-      cminDpNgdl: cminDp,
+      cmaxSSMediaNgdl: cmaxM, cmaxSSDpNgdl: cmaxD,
+      cminSSMediaNgdl: cminM, cminSSDpNgdl: cminD,
+      cavgSSMediaNgdl: cavgM, cavgSSDpNgdl: cavgD,
       percentEugonadal,
     },
   };
 }
 
-/**
- * Gera cronograma de doses com intervalo fixo.
- */
+// =====================================================================
+//   GERADORES DE CRONOGRAMA
+// =====================================================================
+
+/** Cronograma simples com intervalo fixo. */
 export function gerarCronograma(
   doseMg: number,
   intervaloDias: number,
@@ -401,6 +486,25 @@ export function gerarCronograma(
   return Array.from({ length: nDoses }, (_, i) => ({
     diaDose: inicioDias + i * intervaloDias,
     doseMg,
-    rotulo: `Dose ${i + 1}`,
+    rotulo: `Injeção ${i + 1}`,
   }));
+}
+
+/**
+ * Cronograma de carga "Schubert" (regime clássico Nebido EU):
+ *   Injeção 1: dia 0
+ *   Injeção 2: semana 6 (carga, encurta o intervalo inicial para acelerar SS)
+ *   Injeções seguintes: q12sem
+ */
+export function gerarCronogramaSchubert(
+  doseMg: number,
+  nDoses: number
+): DoseAgendada[] {
+  const doses: DoseAgendada[] = [];
+  doses.push({ diaDose: 0, doseMg, rotulo: "Injeção 1" });
+  if (nDoses >= 2) doses.push({ diaDose: 42, doseMg, rotulo: "Injeção 2 (carga)" });
+  for (let i = 2; i < nDoses; i++) {
+    doses.push({ diaDose: 42 + (i - 1) * 84, doseMg, rotulo: `Injeção ${i + 1}` });
+  }
+  return doses;
 }

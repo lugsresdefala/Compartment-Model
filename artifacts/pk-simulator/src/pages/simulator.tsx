@@ -35,18 +35,19 @@ import {
   simularMonteCarlo,
   calcularMetricas,
   gerarCronograma,
+  gerarCronogramaSchubert,
   PARAMETROS_POPULACIONAIS,
+  ALVOS_CALIBRACAO,
+  EUGONADAL_MIN_NGDL,
+  EUGONADAL_MAX_NGDL,
+  EUGONADAL_MIN_NMOL,
+  EUGONADAL_MAX_NMOL,
   NMOL_TO_NGDL,
   NGDL_TO_NMOL,
   type PontoCurva,
   type ResultadoMonteCarlo,
   type MetricasPK,
 } from "@/lib/pk-engine";
-
-const EUGONADAL_MIN_NGDL = 300;
-const EUGONADAL_MAX_NGDL = 1000;
-const EUGONADAL_MIN_NMOL = EUGONADAL_MIN_NGDL / NMOL_TO_NGDL;
-const EUGONADAL_MAX_NMOL = EUGONADAL_MAX_NGDL / NMOL_TO_NGDL;
 
 type UnidadeConc = "ngdl" | "nmol";
 
@@ -57,6 +58,7 @@ interface ConfigSimulador {
   unidade: UnidadeConc;
   mostrarMonteCarlo: boolean;
   nSimulacoesMC: number;
+  cargaSchubert: boolean;  // regime de carga clássico EU: 0, 6 sem, q12sem
 }
 
 const CONFIG_INICIAL: ConfigSimulador = {
@@ -66,6 +68,7 @@ const CONFIG_INICIAL: ConfigSimulador = {
   unidade: "ngdl",
   mostrarMonteCarlo: true,
   nSimulacoesMC: 150,
+  cargaSchubert: true,
 };
 
 function fmt(v: number, u: UnidadeConc): string {
@@ -152,24 +155,29 @@ export default function Simulator() {
   const [aba, setAba] = useState("grafico");
 
   const doses = useMemo(
-    () => gerarCronograma(config.doseMg, config.intervaloDias, config.nDoses),
-    [config.doseMg, config.intervaloDias, config.nDoses]
+    () => config.cargaSchubert
+      ? gerarCronogramaSchubert(config.doseMg, config.nDoses)
+      : gerarCronograma(config.doseMg, config.intervaloDias, config.nDoses),
+    [config.doseMg, config.intervaloDias, config.nDoses, config.cargaSchubert]
   );
 
-  const horDias = Math.max(config.nDoses * config.intervaloDias + 90, 365);
+  const horDias = useMemo(() => {
+    const ultimaDose = doses[doses.length - 1]?.diaDose ?? 0;
+    return Math.max(ultimaDose + 120, 365);
+  }, [doses]);
 
   const perfilMediano = useMemo(
     () =>
       simularPerfil(doses, PARAMETROS_POPULACIONAIS, {
-        passoDias: 1,
+        passoDias: 0.5,
         horizonteDias: horDias,
       }),
     [doses, horDias]
   );
 
   const metricas: MetricasPK = useMemo(
-    () => calcularMetricas(perfilMediano),
-    [perfilMediano]
+    () => calcularMetricas(perfilMediano, doses),
+    [perfilMediano, doses]
   );
 
   // Métricas clínicas adicionais: 1ª dose isolada e steady-state
@@ -180,22 +188,23 @@ export default function Simulator() {
     const perfilDoseUnica = simularPerfil(
       [{ diaDose: 0, doseMg: doses[0]?.doseMg ?? 1000 }],
       PARAMETROS_POPULACIONAIS,
-      { passoDias: 1, horizonteDias: 200 }
+      { passoDias: 0.5, horizonteDias: 200 }
     );
     let cmax1a = 0, tmax1a = 0;
     for (const p of perfilDoseUnica) {
       if (p.ngdl > cmax1a) { cmax1a = p.ngdl; tmax1a = p.dia; }
     }
 
-    // Cmin de steady-state: nadir na última janela inter-dose completa
-    const ultimasDuas = doses.length >= 2 ? doses[doses.length - 2].diaDose : 0;
-    const ssRegiao = perfilMediano.filter(p => p.dia >= ultimasDuas && p.dia <= ultimasDuas + config.intervaloDias);
+    // Cmin / Cmax SS: último intervalo entre as 2 últimas doses
+    const nD = doses.length;
+    const tIni = nD >= 2 ? doses[nD - 2].diaDose : 0;
+    const tFim = nD >= 1 ? doses[nD - 1].diaDose : 0;
+    const ssRegiao = perfilMediano.filter(p => p.dia >= tIni && p.dia < tFim);
     const cminSS = ssRegiao.length > 0 ? Math.min(...ssRegiao.map(p => p.ngdl)) : 0;
-    // Cmax steady-state: pico na última janela completa
     const cmaxSS = ssRegiao.length > 0 ? Math.max(...ssRegiao.map(p => p.ngdl)) : 0;
 
     return { cmax1a, tmax1a, cminSS, cmaxSS };
-  }, [perfilMediano, doses, config.intervaloDias]);
+  }, [perfilMediano, doses]);
 
   const [resultadoMC, setResultadoMC] = useState<ResultadoMonteCarlo | null>(null);
   const [mcConcluido, setMcConcluido] = useState(false);
@@ -257,10 +266,10 @@ export default function Simulator() {
   // Dados histograma de distribuição de Cmax (último MC)
   const histCmax = useMemo(() => {
     if (!resultadoMC) return [];
-    const { cmaxMediaNgdl, cmaxDpNgdl } = resultadoMC.metricasPopulacionais;
+    const { cmaxSSMediaNgdl, cmaxSSDpNgdl } = resultadoMC.metricasPopulacionais;
     const bins = 15;
-    const min = Math.max(0, cmaxMediaNgdl - 3 * cmaxDpNgdl);
-    const max = cmaxMediaNgdl + 3 * cmaxDpNgdl;
+    const min = Math.max(0, cmaxSSMediaNgdl - 3 * cmaxSSDpNgdl);
+    const max = cmaxSSMediaNgdl + 3 * cmaxSSDpNgdl;
     const step = (max - min) / bins;
     return Array.from({ length: bins }, (_, i) => ({
       range: `${Math.round(min + i * step)}`,
@@ -331,16 +340,33 @@ export default function Simulator() {
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-medium text-foreground">Regime de carga (Schubert)</Label>
+                  <Switch
+                    data-testid="switch-carga"
+                    checked={config.cargaSchubert}
+                    onCheckedChange={v => setConfig(c => ({ ...c, cargaSchubert: v }))}
+                  />
+                </div>
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  Protocolo clínico padrão do Nebido: 1ª injeção, 2ª em 6 semanas (carga), depois a cada 12 semanas. Acelera o estado estacionário (Schubert et al., JCEM 2004).
+                </p>
+              </div>
+
+              <div className={`space-y-2 ${config.cargaSchubert ? "opacity-50 pointer-events-none" : ""}`}>
                 <div className="flex justify-between">
                   <Label className="text-xs text-muted-foreground">Tempo entre injeções</Label>
-                  <span className="text-xs font-mono font-medium">{(config.intervaloDias / 7).toFixed(0)} semanas</span>
+                  <span className="text-xs font-mono font-medium">
+                    {config.cargaSchubert ? "12 semanas (Schubert)" : `${(config.intervaloDias / 7).toFixed(0)} semanas`}
+                  </span>
                 </div>
                 <Slider
                   data-testid="slider-intervalo"
                   min={42} max={168} step={7}
                   value={[config.intervaloDias]}
                   onValueChange={([v]) => setConfig(c => ({ ...c, intervaloDias: v }))}
+                  disabled={config.cargaSchubert}
                 />
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>6 sem</span><span>24 sem</span>
@@ -509,21 +535,26 @@ export default function Simulator() {
                 </p>
                 <span className="text-[11px] text-muted-foreground">média ± desvio</span>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <MetricCard
-                  label="Pico máximo entre pacientes"
-                  value={`${Math.round(resultadoMC.metricasPopulacionais.cmaxMediaNgdl)} ± ${Math.round(resultadoMC.metricasPopulacionais.cmaxDpNgdl)} ng/dL`}
-                  sub={`variação típica: ${(resultadoMC.metricasPopulacionais.cmaxDpNgdl / resultadoMC.metricasPopulacionais.cmaxMediaNgdl * 100).toFixed(0)}% para mais ou menos · maior valor que cada paciente atinge`}
+                  label="Pico SS (Cmax)"
+                  value={`${Math.round(resultadoMC.metricasPopulacionais.cmaxSSMediaNgdl)} ± ${Math.round(resultadoMC.metricasPopulacionais.cmaxSSDpNgdl)} ng/dL`}
+                  sub={`Schubert 2004: ~${ALVOS_CALIBRACAO.cmaxSSNgdl} ng/dL · CV ${(resultadoMC.metricasPopulacionais.cmaxSSDpNgdl / Math.max(1, resultadoMC.metricasPopulacionais.cmaxSSMediaNgdl) * 100).toFixed(0)}%`}
                 />
                 <MetricCard
-                  label="Vale médio (estabilizado)"
-                  value={`${Math.round(resultadoMC.metricasPopulacionais.cminMediaNgdl)} ± ${Math.round(resultadoMC.metricasPopulacionais.cminDpNgdl)} ng/dL`}
-                  sub="quanto cada paciente cai antes da próxima dose"
+                  label="Vale SS (Cmin)"
+                  value={`${Math.round(resultadoMC.metricasPopulacionais.cminSSMediaNgdl)} ± ${Math.round(resultadoMC.metricasPopulacionais.cminSSDpNgdl)} ng/dL`}
+                  sub={`Schubert 2004: ~${ALVOS_CALIBRACAO.cminSSNgdl} ng/dL · antes da próxima dose`}
                 />
                 <MetricCard
-                  label="Pacientes na faixa normal"
+                  label="Cmédio SS (Cavg)"
+                  value={`${Math.round(resultadoMC.metricasPopulacionais.cavgSSMediaNgdl)} ± ${Math.round(resultadoMC.metricasPopulacionais.cavgSSDpNgdl)} ng/dL`}
+                  sub="exposição média entre doses no estado estacionário"
+                />
+                <MetricCard
+                  label="% tempo na faixa normal"
                   value={`${resultadoMC.metricasPopulacionais.percentEugonadal.toFixed(0)}%`}
-                  sub="permanecem entre 300–1000 ng/dL após estabilizar"
+                  sub={`entre ${EUGONADAL_MIN_NGDL}–${EUGONADAL_MAX_NGDL} ng/dL no estado estacionário`}
                   statusClass={
                     resultadoMC.metricasPopulacionais.percentEugonadal >= 70
                       ? STATUS_COLOR.normal
@@ -550,7 +581,7 @@ export default function Simulator() {
                     </CardTitle>
                     <CardDescription className="text-xs">
                       Cada injeção causa uma subida e depois uma descida. Repetidas, vão se sobrepondo até atingir um padrão estável.
-                      A faixa <span className="text-emerald-600 dark:text-emerald-400 font-medium">verde</span> mostra os valores normais para um homem adulto (300–1000 ng/dL).
+                      A faixa <span className="text-emerald-600 dark:text-emerald-400 font-medium">verde</span> mostra os valores normais para um homem adulto ({EUGONADAL_MIN_NGDL}–{EUGONADAL_MAX_NGDL} ng/dL · referência harmonizada CDC).
                       Linhas tracejadas roxas marcam o dia de cada injeção.
                     </CardDescription>
                   </CardHeader>
@@ -580,7 +611,7 @@ export default function Simulator() {
                       )}
                       <span className="flex items-center gap-1.5">
                         <span className="inline-block w-3 h-2 rounded-sm bg-emerald-500/20" />
-                        faixa normal (300–1000 ng/dL)
+                        faixa normal ({EUGONADAL_MIN_NGDL}–{EUGONADAL_MAX_NGDL} ng/dL)
                       </span>
                       <span className="flex items-center gap-1.5">
                         <span className="inline-block w-0.5 h-3 border-l border-dashed border-indigo-400" />
@@ -750,11 +781,11 @@ export default function Simulator() {
                     <CardContent className="text-sm space-y-2 text-muted-foreground">
                       <div className="flex items-start gap-2">
                         <div className="w-3 h-3 rounded-full bg-amber-500 mt-1 flex-shrink-0" />
-                        <span><strong className="text-foreground">Abaixo de 300 ng/dL — Hipogonádico:</strong> testosterona baixa demais. Pode causar fadiga, baixa libido, perda muscular.</span>
+                        <span><strong className="text-foreground">Abaixo de {EUGONADAL_MIN_NGDL} ng/dL — Hipogonádico:</strong> testosterona baixa demais. Pode causar fadiga, baixa libido, perda muscular.</span>
                       </div>
                       <div className="flex items-start gap-2">
                         <div className="w-3 h-3 rounded-full bg-emerald-500 mt-1 flex-shrink-0" />
-                        <span><strong className="text-foreground">Entre 300 e 1000 ng/dL — Faixa normal:</strong> valores típicos de um homem adulto saudável. Esta é a zona-alvo do tratamento.</span>
+                        <span><strong className="text-foreground">Entre {EUGONADAL_MIN_NGDL} e {EUGONADAL_MAX_NGDL} ng/dL — Faixa normal:</strong> valores típicos de um homem adulto saudável (referência harmonizada CDC / Endocrine Society). Esta é a zona-alvo do tratamento.</span>
                       </div>
                       <div className="flex items-start gap-2">
                         <div className="w-3 h-3 rounded-full bg-rose-500 mt-1 flex-shrink-0" />
