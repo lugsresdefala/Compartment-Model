@@ -481,11 +481,11 @@ export function simularMonteCarlo(
 // =====================================================================
 
 export interface MedidaPaciente {
-  doseMg: number;          // dose atual (mg)
-  intervaloDias: number;   // intervalo atual (dias)
-  cmaxObsNgdl?: number;    // pico medido no estado estacionário (ng/dL)
-  cminObsNgdl?: number;    // vale medido antes da próxima dose (ng/dL)
-  cavgObsNgdl?: number;    // concentração média medida (opcional)
+  doseMg: number;            // dose atual (mg)
+  intervaloDias: number;     // intervalo atual (dias)
+  cmaxObsNgdl?: number;      // pico medido no estado estacionário (ng/dL)
+  cminObsNgdl?: number;      // vale medido antes da próxima dose (ng/dL)
+  cavgAlvoNgdl?: number;     // concentração média desejada (alvo terapêutico) — default 600
 }
 
 export interface IntervaloAvaliado {
@@ -502,7 +502,8 @@ export interface RecomendacaoIntervalo {
   fatorIndividual: number;            // S_individual / S_pop (sensibilidade relativa)
   classificacaoSensibilidade: string; // "responde menos", "típico", "responde mais"
   parametrosIndividuais: ParametrosPK;
-  cenarioAtual: IntervaloAvaliado;    // como está hoje
+  cenarioAtual: IntervaloAvaliado;    // como está hoje (com Cavg calculado!)
+  cavgAlvoNgdl: number;               // alvo terapêutico usado
   intervalosAvaliados: IntervaloAvaliado[]; // grade 6–16 sem
   intervaloRecomendadoDias: number;
   justificativa: string;
@@ -545,7 +546,7 @@ export function estimarParametrosIndividuais(
   const razoes: number[] = [];
   if (medida.cmaxObsNgdl && cmaxPred > 0) razoes.push(medida.cmaxObsNgdl / cmaxPred);
   if (medida.cminObsNgdl && cminPred > 0) razoes.push(medida.cminObsNgdl / cminPred);
-  if (medida.cavgObsNgdl && cavgPred > 0) razoes.push(medida.cavgObsNgdl / cavgPred);
+  void cavgPred; // Cavg do paciente é OUTPUT, não INPUT
   if (razoes.length === 0) {
     return { params: params0, scale: 1 };
   }
@@ -615,34 +616,51 @@ function avaliarIntervalo(
  */
 export function recomendarIntervalo(medida: MedidaPaciente): RecomendacaoIntervalo {
   const { params, scale } = estimarParametrosIndividuais(medida);
+  const cavgAlvo = medida.cavgAlvoNgdl ?? 600; // alvo terapêutico padrão (meio da faixa)
 
-  // Grade de intervalos: 6 a 16 semanas (passo 1 sem)
+  // Grade de intervalos: 4 a 18 semanas (passo 1 sem) — varredura ampla
   const intervalos: number[] = [];
-  for (let s = 6; s <= 16; s++) intervalos.push(s * 7);
+  for (let s = 4; s <= 18; s++) intervalos.push(s * 7);
 
   const avaliacoes = intervalos.map(td => avaliarIntervalo(medida.doseMg, td, params));
   const cenarioAtual = avaliarIntervalo(medida.doseMg, medida.intervaloDias, params);
 
-  // Selecionar recomendação
-  const ok = avaliacoes.filter(a => a.cminSSNgdl >= EUGONADAL_MIN_NGDL && a.cmaxSSNgdl <= EUGONADAL_MAX_NGDL);
+  // Selecionar recomendação:
+  //   PRIORIDADE 1: Cmin ≥ EUGONADAL_MIN (sem hipogonadismo entre doses)
+  //   ENTRE OS QUE PASSAM: aquele cujo Cavg mais se aproxima do alvo do paciente
+  //   FILTRO ADICIONAL: penalizar Cmax > EUGONADAL_MAX
+  const seguros = avaliacoes.filter(a => a.cminSSNgdl >= EUGONADAL_MIN_NGDL);
+
   let recomendado: IntervaloAvaliado;
   let justificativa: string;
-  if (ok.length > 0) {
-    // Mais longo entre os que passam → menos injeções
-    recomendado = ok.reduce((m, a) => (a.intervaloDias > m.intervaloDias ? a : m));
-    justificativa = `Com este intervalo, o vale fica em ${Math.round(recomendado.cminSSNgdl)} ng/dL (acima de ${EUGONADAL_MIN_NGDL}) e o pico em ${Math.round(recomendado.cmaxSSNgdl)} ng/dL (abaixo de ${EUGONADAL_MAX_NGDL}). É o intervalo mais espaçado em que o paciente permanece dentro da faixa normal entre doses.`;
-  } else {
-    // Maximizar % tempo na faixa
-    recomendado = avaliacoes.reduce((m, a) => (a.percentEugonadal > m.percentEugonadal ? a : m));
-    const valeBaixo = recomendado.cminSSNgdl < EUGONADAL_MIN_NGDL;
-    const picoAlto = recomendado.cmaxSSNgdl > EUGONADAL_MAX_NGDL;
-    if (valeBaixo && !picoAlto) {
-      justificativa = `Com a dose atual (${medida.doseMg} mg), nenhum intervalo mantém o vale acima de ${EUGONADAL_MIN_NGDL} ng/dL. Este intervalo dá o melhor compromisso (${recomendado.percentEugonadal.toFixed(0)}% do tempo na faixa). Considere AUMENTAR a dose ou reduzir o intervalo.`;
-    } else if (picoAlto && !valeBaixo) {
-      justificativa = `Com a dose atual (${medida.doseMg} mg), o pico passa de ${EUGONADAL_MAX_NGDL} ng/dL em todos os intervalos testados. Considere REDUZIR a dose para evitar níveis suprafisiológicos.`;
+
+  if (seguros.length > 0) {
+    // Escolher aquele cujo Cavg está mais próximo do alvo
+    recomendado = seguros.reduce((melhor, a) => {
+      const dM = Math.abs(melhor.cavgSSNgdl - cavgAlvo);
+      const dA = Math.abs(a.cavgSSNgdl - cavgAlvo);
+      // desempate: penalizar pico acima do limite (5 ng/dL de penalidade por unidade)
+      const penM = Math.max(0, melhor.cmaxSSNgdl - EUGONADAL_MAX_NGDL);
+      const penA = Math.max(0, a.cmaxSSNgdl - EUGONADAL_MAX_NGDL);
+      return (dA + penA * 0.5) < (dM + penM * 0.5) ? a : melhor;
+    });
+
+    const dif = recomendado.cavgSSNgdl - cavgAlvo;
+    const aproxStr = Math.abs(dif) < 30 ? "praticamente igual ao alvo" :
+                     dif > 0 ? `${Math.round(Math.abs(dif))} ng/dL acima do alvo` :
+                              `${Math.round(Math.abs(dif))} ng/dL abaixo do alvo`;
+
+    if (recomendado.cmaxSSNgdl > EUGONADAL_MAX_NGDL) {
+      justificativa = `Com este intervalo, a média sérica fica em ${Math.round(recomendado.cavgSSNgdl)} ng/dL (${aproxStr} de ${cavgAlvo}) e o vale em ${Math.round(recomendado.cminSSNgdl)} ng/dL (acima de ${EUGONADAL_MIN_NGDL}, sem hipogonadismo). O pico chega a ${Math.round(recomendado.cmaxSSNgdl)} ng/dL — para reduzir o pico mantendo a média, considere reduzir a dose e encurtar proporcionalmente o intervalo.`;
     } else {
-      justificativa = `Com a dose atual (${medida.doseMg} mg), nenhum intervalo simultaneamente mantém o vale acima de ${EUGONADAL_MIN_NGDL} e o pico abaixo de ${EUGONADAL_MAX_NGDL} ng/dL. Considere ajustar a dose.`;
+      justificativa = `Com este intervalo, a média sérica deste paciente fica em ${Math.round(recomendado.cavgSSNgdl)} ng/dL (${aproxStr} de ${cavgAlvo}). O vale fica em ${Math.round(recomendado.cminSSNgdl)} ng/dL e o pico em ${Math.round(recomendado.cmaxSSNgdl)} ng/dL — ambos dentro da faixa fisiológica.`;
     }
+  } else {
+    // Nenhum intervalo mantém o vale seguro: melhor compromisso (Cavg mais próximo do alvo)
+    recomendado = avaliacoes.reduce((m, a) =>
+      Math.abs(a.cavgSSNgdl - cavgAlvo) < Math.abs(m.cavgSSNgdl - cavgAlvo) ? a : m
+    );
+    justificativa = `Com a dose atual (${medida.doseMg} mg), NENHUM intervalo testado mantém o vale acima de ${EUGONADAL_MIN_NGDL} ng/dL — o paciente terá períodos de hipogonadismo entre doses. Para atingir uma média de ${cavgAlvo} ng/dL com vale seguro, é necessário AUMENTAR a dose (e provavelmente encurtar o intervalo).`;
   }
 
   // Classificação da sensibilidade individual
@@ -656,6 +674,7 @@ export function recomendarIntervalo(medida: MedidaPaciente): RecomendacaoInterva
     classificacaoSensibilidade: classificacao,
     parametrosIndividuais: params,
     cenarioAtual,
+    cavgAlvoNgdl: cavgAlvo,
     intervalosAvaliados: avaliacoes,
     intervaloRecomendadoDias: recomendado.intervaloDias,
     justificativa,
