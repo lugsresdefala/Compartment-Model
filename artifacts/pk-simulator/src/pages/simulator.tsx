@@ -337,13 +337,13 @@ export default function Simulator() {
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Header */}
       <header className="border-b border-border px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-card/40 backdrop-blur">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
           <LodiLogo size="md" showTagline={false} />
-          <div className="hidden md:block">
-            <p className="text-[11px] uppercase tracking-[0.18em] font-display text-muted-foreground">
+          <div>
+            <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.18em] font-display text-muted-foreground leading-snug">
               Lógica da Dose Individualizada para Hormonização
             </p>
-            <p className="text-xs text-muted-foreground/80 mt-0.5">
+            <p className="text-[11px] sm:text-xs text-muted-foreground/80 mt-0.5 hidden sm:block">
               Simulação farmacocinética de undecilato de testosterona (Nebido)
             </p>
           </div>
