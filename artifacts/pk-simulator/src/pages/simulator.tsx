@@ -23,8 +23,6 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
   Activity,
-  BarChart2,
-  FlaskConical,
   AlertTriangle,
   CheckCircle2,
   TrendingUp,
@@ -1101,7 +1099,7 @@ export default function Simulator() {
                   </p>
                 </div>
                 <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
-                  <Card>
+                  <Card className="lodi-card">
                     <CardHeader>
                       <CardTitle className="text-sm">O que esta simulação faz?</CardTitle>
                     </CardHeader>
@@ -1126,7 +1124,7 @@ export default function Simulator() {
                     </CardContent>
                   </Card>
 
-                  <Card>
+                  <Card className="lodi-card">
                     <CardHeader>
                       <CardTitle className="text-sm">O que é "variação entre pacientes"?</CardTitle>
                     </CardHeader>
@@ -1149,7 +1147,7 @@ export default function Simulator() {
                     </CardContent>
                   </Card>
 
-                  <Card>
+                  <Card className="lodi-card">
                     <CardHeader>
                       <CardTitle className="text-sm">O que significam as cores?</CardTitle>
                     </CardHeader>
@@ -1169,7 +1167,7 @@ export default function Simulator() {
                     </CardContent>
                   </Card>
 
-                  <Card>
+                  <Card className="lodi-card">
                     <CardHeader>
                       <CardTitle className="text-sm">Por que demora tanto a estabilizar?</CardTitle>
                     </CardHeader>
@@ -1190,7 +1188,7 @@ export default function Simulator() {
                     </CardContent>
                   </Card>
 
-                  <Card className="md:col-span-2">
+                  <Card className="md:col-span-2 lodi-card">
                     <CardHeader>
                       <CardTitle className="text-sm">Detalhes técnicos (para quem quer entender mais)</CardTitle>
                     </CardHeader>
