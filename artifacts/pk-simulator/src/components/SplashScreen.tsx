@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LodiLogo } from "./LodiLogo";
 
 const SESSION_KEY = "lodi-splash-shown";
@@ -17,6 +17,18 @@ export function SplashScreen() {
 
   const [mounted, setMounted] = useState(!alreadyShown);
   const [leaving, setLeaving] = useState(false);
+  const unmountTimerRef = useRef<number | null>(null);
+
+  const dismiss = useCallback(() => {
+    setLeaving((prev) => {
+      if (prev) return prev;
+      if (unmountTimerRef.current !== null) {
+        window.clearTimeout(unmountTimerRef.current);
+      }
+      unmountTimerRef.current = window.setTimeout(() => setMounted(false), FADE_MS);
+      return true;
+    });
+  }, []);
 
   useEffect(() => {
     if (!mounted) return;
@@ -25,21 +37,38 @@ export function SplashScreen() {
     } catch {
       /* ignore */
     }
-    const fadeTimer = window.setTimeout(() => setLeaving(true), VISIBLE_MS);
-    const unmountTimer = window.setTimeout(() => setMounted(false), VISIBLE_MS + FADE_MS);
+    const fadeTimer = window.setTimeout(dismiss, VISIBLE_MS);
     return () => {
       window.clearTimeout(fadeTimer);
-      window.clearTimeout(unmountTimer);
+      if (unmountTimerRef.current !== null) {
+        window.clearTimeout(unmountTimerRef.current);
+        unmountTimerRef.current = null;
+      }
     };
-  }, [mounted]);
+  }, [mounted, dismiss]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" || event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+        event.preventDefault();
+        dismiss();
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [mounted, dismiss]);
 
   if (!mounted) return null;
 
   return (
     <div
-      aria-hidden="true"
+      role="button"
+      tabIndex={0}
+      aria-label="Pular tela de abertura"
       data-testid="splash-screen"
-      className={`lodi-splash fixed inset-0 z-[9999] flex items-center justify-center ${
+      onClick={dismiss}
+      className={`lodi-splash fixed inset-0 z-[9999] flex items-center justify-center cursor-pointer ${
         leaving ? "lodi-splash-leaving" : ""
       }`}
     >
