@@ -334,19 +334,14 @@ export default function Simulator() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Header */}
-      <header className="border-b border-border px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-card/40 backdrop-blur">
-        <div className="flex items-center gap-4 flex-wrap">
-          <LodiLogo size="md" showTagline={false} />
-          <div>
-            <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.18em] font-display text-muted-foreground leading-snug">
-              Lógica da Dose Individualizada para Hormonização
-            </p>
-            <p className="text-[11px] sm:text-xs text-muted-foreground/80 mt-0.5 hidden sm:block">
-              Simulação farmacocinética de undecilato de testosterona (Nebido)
-            </p>
-          </div>
+      <header className="border-b border-border px-4 sm:px-6 py-3 flex items-center justify-between gap-3 bg-card/40 backdrop-blur">
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+          <LodiLogo size="md" />
+          <p className="hidden md:block text-xs text-muted-foreground/80 leading-snug">
+            Simulação farmacocinética de undecilato de testosterona (Nebido)
+          </p>
         </div>
-        <Badge variant="outline" className="text-[10px] gap-1 border-accent/40 text-accent uppercase tracking-wider">
+        <Badge variant="outline" className="text-[10px] gap-1 border-accent/40 text-accent uppercase tracking-wider shrink-0">
           <Activity className="w-3 h-3" />
           Uso educacional
         </Badge>
@@ -1092,9 +1087,9 @@ export default function Simulator() {
               </TabsContent>
 
               <TabsContent value="info">
-                <div className="mb-4 flex flex-col items-center text-center gap-3 py-6">
-                  <LodiLogo size="lg" showTagline={true} />
-                  <p className="text-xs text-muted-foreground max-w-xl mt-2">
+                <div className="mb-6 flex flex-col items-center text-center gap-4 py-6">
+                  <LodiLogo size="lg" />
+                  <p className="text-xs text-muted-foreground max-w-xl">
                     Plataforma educacional de simulação farmacocinética para terapia hormonal com undecilato de testosterona (Nebido) — modelo de 2 compartimentos com absorção de 1ª ordem e variação populacional Monte Carlo.
                   </p>
                 </div>

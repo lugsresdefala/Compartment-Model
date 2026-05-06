@@ -241,7 +241,13 @@
 }
 
 @layer utilities {
-  /* L.O.D.I. branded logo styles */
+  /* L.O.D.I. logo image — subtle drop shadow to lift it on dark background */
+  .lodi-logo-img {
+    filter: drop-shadow(0 4px 18px rgba(168, 85, 247, 0.35))
+            drop-shadow(0 0 28px rgba(34, 211, 238, 0.18));
+  }
+
+  /* Legacy text-based logo styles (kept for potential reuse) */
   .lodi-text {
     background: linear-gradient(110deg, #22d3ee 0%, #a855f7 50%, #ec4899 100%);
     -webkit-background-clip: text;
