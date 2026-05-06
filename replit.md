@@ -26,6 +26,6 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 
 ## Artifacts
 
-- `artifacts/pk-simulator` — **L.O.D.I.** (Lógica da Dose Individualizada para Hormonização). Educational PK simulator for testosterone undecanoate (Nebido). Dark-first futuristic neon theme (cyan/violet/magenta), Orbitron display font, HUD-styled `LodiLogo` component. Scientific engine in `src/lib/pk-engine.ts` is the source of truth and must not be modified for visual changes.
+- `artifacts/pk-simulator` — **L.O.D.I.** (Lógica da Dose Individualizada para Hormonização). Educational PK simulator for testosterone undecanoate (Nebido). Dark-first futuristic neon theme (cyan/violet/magenta), Orbitron display font, HUD-styled `LodiLogo` component. Optional light theme keeps the same brand palette (lavender/pearl background, same cyan/violet/magenta accents); user choice is persisted in `localStorage` under key `lodi-theme` and applied pre-hydration by an inline script in `index.html` to avoid FOUC. Scientific engine in `src/lib/pk-engine.ts` is the source of truth and must not be modified for visual changes.
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.

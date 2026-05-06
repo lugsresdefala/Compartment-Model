@@ -27,6 +27,8 @@ import {
   CheckCircle2,
   TrendingUp,
   Clock,
+  Sun,
+  Moon,
 } from "lucide-react";
 import {
   simularPerfil,
@@ -152,10 +154,29 @@ function CustomTooltipMC({ active, payload, label, unidade }: {
   );
 }
 
+type Tema = "light" | "dark";
+
+function getTemaInicial(): Tema {
+  if (typeof document === "undefined") return "dark";
+  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+}
+
 export default function Simulator() {
   const [config, setConfig] = useState<ConfigSimulador>(CONFIG_INICIAL);
   const [isCalculating, setIsCalculating] = useState(false);
   const [aba, setAba] = useState("grafico");
+  const [tema, setTema] = useState<Tema>(getTemaInicial);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (tema === "dark") root.classList.add("dark");
+    else root.classList.remove("dark");
+    try { localStorage.setItem("lodi-theme", tema); } catch { /* ignore */ }
+  }, [tema]);
+
+  const alternarTema = useCallback(() => {
+    setTema(t => (t === "dark" ? "light" : "dark"));
+  }, []);
 
   const doses = useMemo(
     () => config.cargaSchubert
@@ -341,10 +362,24 @@ export default function Simulator() {
             Simulação farmacocinética de undecilato de testosterona (Nebido)
           </p>
         </div>
-        <Badge variant="outline" className="text-[10px] gap-1 border-accent/40 text-accent uppercase tracking-wider shrink-0">
-          <Activity className="w-3 h-3" />
-          Uso educacional
-        </Badge>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={alternarTema}
+            data-testid="button-tema"
+            aria-label={tema === "dark" ? "Mudar para tema claro" : "Mudar para tema escuro"}
+            title={tema === "dark" ? "Mudar para tema claro" : "Mudar para tema escuro"}
+            className="h-8 w-8"
+          >
+            {tema === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </Button>
+          <Badge variant="outline" className="text-[10px] gap-1 border-accent/40 text-accent uppercase tracking-wider">
+            <Activity className="w-3 h-3" />
+            Uso educacional
+          </Badge>
+        </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden flex-col lg:flex-row">
