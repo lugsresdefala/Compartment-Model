@@ -293,6 +293,29 @@
     box-shadow:
       0 0 0 1px rgba(168, 85, 247, 0.10),
       0 8px 32px -8px rgba(168, 85, 247, 0.18);
+    border-color: rgba(168, 85, 247, 0.18) !important;
+  }
+
+  .dark .lodi-button-primary {
+    background-image: linear-gradient(110deg, #2563eb 0%, #7c3aed 50%, #a855f7 100%);
+    color: #fff;
+    border: 1px solid rgba(168, 85, 247, 0.5);
+    box-shadow:
+      0 0 0 1px rgba(34, 211, 238, 0.15) inset,
+      0 4px 18px -2px rgba(168, 85, 247, 0.45);
+    transition: filter .15s ease, box-shadow .15s ease, transform .05s ease;
+  }
+  .dark .lodi-button-primary:hover { filter: brightness(1.1) saturate(1.05); }
+  .dark .lodi-button-primary:active { transform: translateY(1px); }
+
+  .dark .lodi-chip-active {
+    background-image: linear-gradient(110deg, rgba(34, 211, 238, 0.25), rgba(168, 85, 247, 0.35));
+    color: #fff !important;
+    border-color: rgba(34, 211, 238, 0.6) !important;
+    box-shadow:
+      0 0 0 1px rgba(168, 85, 247, 0.4) inset,
+      0 0 14px rgba(168, 85, 247, 0.5),
+      0 0 6px rgba(34, 211, 238, 0.4);
   }
 }
 

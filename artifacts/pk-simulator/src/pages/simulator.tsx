@@ -615,7 +615,7 @@ export default function Simulator() {
               </TabsList>
 
               <TabsContent value="grafico" className="space-y-4">
-                <Card>
+                <Card className="lodi-card">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm">
                       Testosterona no sangue — {config.doseMg} mg a cada {(config.intervaloDias / 7).toFixed(0)} semanas
@@ -768,10 +768,10 @@ export default function Simulator() {
               <TabsContent value="paciente" className="space-y-4">
                 <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
                   {/* Coluna 1: formulário */}
-                  <Card className="lg:col-span-1">
+                  <Card className="lg:col-span-1 lodi-card">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm flex items-center gap-2">
-                        <UserCog className="w-4 h-4 text-primary" />
+                        <UserCog className="w-4 h-4 text-accent" />
                         Dados do paciente
                       </CardTitle>
                       <CardDescription className="text-xs">
@@ -862,10 +862,10 @@ export default function Simulator() {
                               key={v}
                               type="button"
                               onClick={() => setPacienteIn(p => ({ ...p, cavgAlvo: String(v) }))}
-                              className={`text-[10px] px-2 py-0.5 rounded-md border transition-colors ${
+                              className={`text-[10px] px-2 py-0.5 rounded-md border transition-all ${
                                 pacienteIn.cavgAlvo === String(v)
-                                  ? "bg-primary text-primary-foreground border-primary"
-                                  : "bg-background text-muted-foreground border-border hover:bg-muted"
+                                  ? "lodi-chip-active bg-primary text-primary-foreground border-primary"
+                                  : "bg-background text-muted-foreground border-border hover:bg-muted hover:border-accent/50"
                               }`}
                             >
                               {v}
@@ -879,7 +879,7 @@ export default function Simulator() {
 
                       <Button
                         data-testid="button-recomendar"
-                        className="w-full"
+                        className="w-full lodi-button-primary font-display tracking-wide"
                         onClick={calcularRecomendacao}
                       >
                         Calcular intervalo ideal
