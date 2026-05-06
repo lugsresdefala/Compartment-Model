@@ -161,20 +161,44 @@ function getTemaInicial(): Tema {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
 
+function getTemaExplicitoInicial(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    const t = localStorage.getItem("lodi-theme");
+    return t === "light" || t === "dark";
+  } catch {
+    return false;
+  }
+}
+
 export default function Simulator() {
   const [config, setConfig] = useState<ConfigSimulador>(CONFIG_INICIAL);
   const [isCalculating, setIsCalculating] = useState(false);
   const [aba, setAba] = useState("grafico");
   const [tema, setTema] = useState<Tema>(getTemaInicial);
+  const [temaExplicito, setTemaExplicito] = useState<boolean>(getTemaExplicitoInicial);
 
   useEffect(() => {
     const root = document.documentElement;
     if (tema === "dark") root.classList.add("dark");
     else root.classList.remove("dark");
-    try { localStorage.setItem("lodi-theme", tema); } catch { /* ignore */ }
-  }, [tema]);
+    if (temaExplicito) {
+      try { localStorage.setItem("lodi-theme", tema); } catch { /* ignore */ }
+    }
+  }, [tema, temaExplicito]);
+
+  // Acompanhar a preferência do sistema enquanto o usuário não fizer uma escolha explícita
+  useEffect(() => {
+    if (temaExplicito) return;
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mql = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => setTema(e.matches ? "dark" : "light");
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, [temaExplicito]);
 
   const alternarTema = useCallback(() => {
+    setTemaExplicito(true);
     setTema(t => (t === "dark" ? "light" : "dark"));
   }, []);
 
