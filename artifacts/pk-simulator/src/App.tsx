@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Simulator from "@/pages/simulator";
+import { SplashScreen } from "@/components/SplashScreen";
 
 const queryClient = new QueryClient();
 
@@ -24,6 +25,7 @@ function App() {
           <Router />
         </WouterRouter>
         <Toaster />
+        <SplashScreen />
       </TooltipProvider>
     </QueryClientProvider>
   );

@@ -394,4 +394,117 @@
   .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
     inset: -1px;
   }
+
+  /* L.O.D.I. splash screen */
+  .lodi-splash {
+    background:
+      radial-gradient(ellipse at 50% 40%, rgba(34, 211, 238, 0.18), transparent 60%),
+      radial-gradient(ellipse at 50% 60%, rgba(236, 72, 153, 0.14), transparent 65%),
+      #05030f;
+    overflow: hidden;
+    transition: opacity 450ms ease, transform 450ms ease;
+    opacity: 1;
+  }
+  .lodi-splash-leaving {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .lodi-splash-grid {
+    position: absolute;
+    inset: -2px;
+    background-image:
+      linear-gradient(rgba(168, 85, 247, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(34, 211, 238, 0.08) 1px, transparent 1px);
+    background-size: 44px 44px, 44px 44px;
+    mask-image: radial-gradient(ellipse at 50% 50%, #000 35%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 50%, #000 35%, transparent 75%);
+    animation: lodi-grid-drift 6s linear infinite;
+    opacity: 0.7;
+  }
+
+  .lodi-splash-glow {
+    position: absolute;
+    inset: 0;
+    background: conic-gradient(
+      from 0deg at 50% 50%,
+      rgba(34, 211, 238, 0.0),
+      rgba(34, 211, 238, 0.18),
+      rgba(168, 85, 247, 0.20),
+      rgba(236, 72, 153, 0.18),
+      rgba(34, 211, 238, 0.0)
+    );
+    filter: blur(48px);
+    animation: lodi-glow-spin 5s linear infinite;
+    opacity: 0.55;
+  }
+
+  .lodi-splash-scanline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.85), transparent);
+    box-shadow: 0 0 18px rgba(34, 211, 238, 0.7);
+    animation: lodi-scan 1.6s ease-in-out infinite;
+    opacity: 0.85;
+  }
+
+  .lodi-splash-pop {
+    animation: lodi-pop 700ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+  }
+
+  .lodi-splash-bar {
+    position: relative;
+    width: 220px;
+    height: 3px;
+    border-radius: 999px;
+    background: rgba(168, 85, 247, 0.18);
+    overflow: hidden;
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.25) inset;
+  }
+  .lodi-splash-bar > span {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 40%;
+    background: linear-gradient(90deg, #22d3ee, #a855f7, #ec4899);
+    box-shadow: 0 0 14px rgba(168, 85, 247, 0.85);
+    animation: lodi-bar-sweep 1.2s ease-in-out infinite;
+    border-radius: 999px;
+  }
+
+  @keyframes lodi-grid-drift {
+    0% { background-position: 0 0, 0 0; }
+    100% { background-position: 44px 44px, -44px 44px; }
+  }
+  @keyframes lodi-glow-spin {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes lodi-scan {
+    0% { top: 12%; opacity: 0; }
+    20% { opacity: 0.9; }
+    80% { opacity: 0.9; }
+    100% { top: 88%; opacity: 0; }
+  }
+  @keyframes lodi-pop {
+    0% { opacity: 0; transform: translateY(8px) scale(0.94); filter: blur(6px); }
+    60% { opacity: 1; filter: blur(0); }
+    100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  }
+  @keyframes lodi-bar-sweep {
+    0% { left: -45%; }
+    100% { left: 105%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lodi-splash-grid,
+    .lodi-splash-glow,
+    .lodi-splash-scanline,
+    .lodi-splash-pop,
+    .lodi-splash-bar > span {
+      animation: none !important;
+    }
+  }
 }
