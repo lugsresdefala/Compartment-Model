@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "Simulador PK - Undecilato de Testosterona"
+title = "L.O.D.I. — Lógica da Dose Individualizada"
 version = "1.0.0"
 id = "artifacts/pk-simulator"
 router = "path"

@@ -52,6 +52,7 @@ import {
 } from "@/lib/pk-engine";
 import { UserCog } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { LodiLogo } from "@/components/LodiLogo";
 
 type UnidadeConc = "ngdl" | "nmol";
 
@@ -335,17 +336,19 @@ export default function Simulator() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Header */}
-      <header className="border-b border-border px-6 py-4 flex items-center justify-between bg-card">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <FlaskConical className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="font-bold text-base leading-tight">Simulador de Testosterona Intramuscular</h1>
-            <p className="text-xs text-muted-foreground">Como a concentração no sangue varia ao longo do tratamento com Nebido (undecilato de testosterona)</p>
+      <header className="border-b border-border px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-card/40 backdrop-blur">
+        <div className="flex items-center gap-4">
+          <LodiLogo size="md" showTagline={false} />
+          <div className="hidden md:block">
+            <p className="text-[11px] uppercase tracking-[0.18em] font-display text-muted-foreground">
+              Lógica da Dose Individualizada para Hormonização
+            </p>
+            <p className="text-xs text-muted-foreground/80 mt-0.5">
+              Simulação farmacocinética de undecilato de testosterona (Nebido)
+            </p>
           </div>
         </div>
-        <Badge variant="outline" className="text-xs gap-1">
+        <Badge variant="outline" className="text-[10px] gap-1 border-accent/40 text-accent uppercase tracking-wider">
           <Activity className="w-3 h-3" />
           Uso educacional
         </Badge>
@@ -619,8 +622,8 @@ export default function Simulator() {
                     </CardTitle>
                     <CardDescription className="text-xs">
                       Cada injeção causa uma subida e depois uma descida. Repetidas, vão se sobrepondo até atingir um padrão estável.
-                      A faixa <span className="text-emerald-600 dark:text-emerald-400 font-medium">verde</span> mostra os valores normais para um homem adulto ({EUGONADAL_MIN_NGDL}–{EUGONADAL_MAX_NGDL} ng/dL · referência harmonizada CDC).
-                      Linhas tracejadas roxas marcam o dia de cada injeção.
+                      A faixa <span className="text-emerald-400 font-medium">verde</span> mostra os valores normais para um homem adulto ({EUGONADAL_MIN_NGDL}–{EUGONADAL_MAX_NGDL} ng/dL · referência harmonizada CDC).
+                      Linhas tracejadas magenta marcam o dia de cada injeção.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="p-2">
@@ -629,21 +632,21 @@ export default function Simulator() {
                       {config.mostrarMonteCarlo && resultadoMC ? (
                         <>
                           <span className="flex items-center gap-1.5">
-                            <span className="inline-block w-3 h-2 rounded-sm bg-blue-500/15" />
+                            <span className="inline-block w-3 h-2 rounded-sm bg-violet-500/20" />
                             faixa onde caem 9 em cada 10 pacientes
                           </span>
                           <span className="flex items-center gap-1.5">
-                            <span className="inline-block w-3 h-2 rounded-sm bg-blue-500/30" />
+                            <span className="inline-block w-3 h-2 rounded-sm bg-violet-500/40" />
                             faixa onde caem 5 em cada 10 (a metade típica)
                           </span>
                           <span className="flex items-center gap-1.5">
-                            <span className="inline-block w-3 h-0.5 bg-blue-600" />
+                            <span className="inline-block w-3 h-0.5 bg-cyan-400" />
                             paciente médio
                           </span>
                         </>
                       ) : (
                         <span className="flex items-center gap-1.5">
-                          <span className="inline-block w-3 h-0.5 bg-blue-600" />
+                          <span className="inline-block w-3 h-0.5 bg-cyan-400" />
                           concentração de testosterona
                         </span>
                       )}
@@ -652,7 +655,7 @@ export default function Simulator() {
                         faixa normal ({EUGONADAL_MIN_NGDL}–{EUGONADAL_MAX_NGDL} ng/dL)
                       </span>
                       <span className="flex items-center gap-1.5">
-                        <span className="inline-block w-0.5 h-3 border-l border-dashed border-indigo-400" />
+                        <span className="inline-block w-0.5 h-3 border-l border-dashed border-pink-400" />
                         injeção
                       </span>
                     </div>
@@ -678,20 +681,20 @@ export default function Simulator() {
                         {/* Zona eugonadal */}
                         <ReferenceArea
                           y1={eugMin} y2={eugMax}
-                          fill="#22c55e" fillOpacity={0.08}
+                          fill="#10b981" fillOpacity={0.10}
                         />
-                        <ReferenceLine y={eugMin} stroke="#16a34a" strokeDasharray="4 4" strokeWidth={1} label={{ value: `mín. normal (${eugMin.toFixed(config.unidade === "nmol" ? 1 : 0)})`, position: "right", fontSize: 9, fill: "#16a34a" }} />
-                        <ReferenceLine y={eugMax} stroke="#16a34a" strokeDasharray="4 4" strokeWidth={1} label={{ value: `máx. normal (${eugMax.toFixed(config.unidade === "nmol" ? 1 : 0)})`, position: "right", fontSize: 9, fill: "#16a34a" }} />
+                        <ReferenceLine y={eugMin} stroke="#34d399" strokeDasharray="4 4" strokeWidth={1} label={{ value: `mín. normal (${eugMin.toFixed(config.unidade === "nmol" ? 1 : 0)})`, position: "right", fontSize: 9, fill: "#34d399" }} />
+                        <ReferenceLine y={eugMax} stroke="#34d399" strokeDasharray="4 4" strokeWidth={1} label={{ value: `máx. normal (${eugMax.toFixed(config.unidade === "nmol" ? 1 : 0)})`, position: "right", fontSize: 9, fill: "#34d399" }} />
 
                         {/* Marcadores de doses */}
                         {doses.map((d, i) => (
                           <ReferenceLine
                             key={i}
                             x={d.diaDose / 7}
-                            stroke="#6366f1"
+                            stroke="#ec4899"
                             strokeWidth={1}
                             strokeDasharray="2 4"
-                            opacity={0.5}
+                            opacity={0.45}
                           />
                         ))}
 
@@ -700,8 +703,8 @@ export default function Simulator() {
                             type="monotone"
                             dataKey="bandaIC90"
                             stroke="none"
-                            fill="#3b82f6"
-                            fillOpacity={0.15}
+                            fill="#a855f7"
+                            fillOpacity={0.14}
                             name="9 em 10 pacientes"
                             isAnimationActive={false}
                             dot={false}
@@ -713,8 +716,8 @@ export default function Simulator() {
                             type="monotone"
                             dataKey="bandaIQ50"
                             stroke="none"
-                            fill="#3b82f6"
-                            fillOpacity={0.30}
+                            fill="#a855f7"
+                            fillOpacity={0.28}
                             name="metade típica"
                             isAnimationActive={false}
                             dot={false}
@@ -724,8 +727,8 @@ export default function Simulator() {
                         <Line
                           type="monotone"
                           dataKey="conc"
-                          stroke="#2563eb"
-                          strokeWidth={2}
+                          stroke="#22d3ee"
+                          strokeWidth={2.2}
                           dot={false}
                           isAnimationActive={false}
                           name={config.mostrarMonteCarlo && resultadoMC ? "paciente médio" : "testosterona"}
@@ -751,7 +754,7 @@ export default function Simulator() {
                     <li><strong>Acúmulo:</strong> as primeiras injeções não atingem o nível normal; com doses repetidas, os valores se acumulam até estabilizar.</li>
                     <li><strong>Faixa verde:</strong> intervalo de testosterona considerado normal para um homem adulto. O ideal é a curva ficar dentro dela.</li>
                     {config.mostrarMonteCarlo && (
-                      <li><strong>Áreas azuis:</strong> mostram que pacientes diferentes respondem de forma diferente — alguns ficam mais altos, outros mais baixos com a mesma dose.</li>
+                      <li><strong>Áreas violeta:</strong> mostram que pacientes diferentes respondem de forma diferente — alguns ficam mais altos, outros mais baixos com a mesma dose.</li>
                     )}
                   </ul>
                 </div>
@@ -1091,6 +1094,12 @@ export default function Simulator() {
               </TabsContent>
 
               <TabsContent value="info">
+                <div className="mb-4 flex flex-col items-center text-center gap-3 py-6">
+                  <LodiLogo size="lg" showTagline={true} />
+                  <p className="text-xs text-muted-foreground max-w-xl mt-2">
+                    Plataforma educacional de simulação farmacocinética para terapia hormonal com undecilato de testosterona (Nebido) — modelo de 2 compartimentos com absorção de 1ª ordem e variação populacional Monte Carlo.
+                  </p>
+                </div>
                 <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
                   <Card>
                     <CardHeader>
@@ -1112,7 +1121,7 @@ export default function Simulator() {
                         <li>quanto é eliminado (pelo fígado)</li>
                       </ul>
                       <p>
-                        O resultado é a <strong className="text-foreground">curva azul</strong> que você vê no gráfico.
+                        O resultado é a <strong className="text-foreground">curva neon ciano</strong> que você vê no gráfico.
                       </p>
                     </CardContent>
                   </Card>
@@ -1135,7 +1144,7 @@ export default function Simulator() {
                       <p>
                         Quando a opção <em>"Mostrar variação entre pacientes"</em> está ativa, o programa simula
                         centenas de pacientes virtuais e mostra a faixa onde a maioria cai. As <strong className="text-foreground">áreas
-                        azuis sombreadas</strong> no gráfico mostram essa variação.
+                        violeta sombreadas</strong> no gráfico mostram essa variação.
                       </p>
                     </CardContent>
                   </Card>

@@ -24,4 +24,8 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
+## Artifacts
+
+- `artifacts/pk-simulator` — **L.O.D.I.** (Lógica da Dose Individualizada para Hormonização). Educational PK simulator for testosterone undecanoate (Nebido). Dark-first futuristic neon theme (cyan/violet/magenta), Orbitron display font, HUD-styled `LodiLogo` component. Scientific engine in `src/lib/pk-engine.ts` is the source of truth and must not be modified for visual changes.
+
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.

@@ -57,6 +57,7 @@
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
   --font-sans: var(--app-font-sans);
+  --font-display: var(--app-font-display);
   --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
 
@@ -120,7 +121,8 @@
   --chart-4: 280 65% 60%;
   --chart-5: 340 75% 55%;
 
-  --app-font-sans: 'Inter', system-ui, sans-serif;
+  --app-font-sans: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --app-font-display: 'Orbitron', 'Space Grotesk', system-ui, sans-serif;
   --app-font-serif: Georgia, serif;
   --app-font-mono: 'JetBrains Mono', 'Menlo', monospace;
   --radius: 0.5rem;
@@ -153,57 +155,57 @@
 }
 
 .dark {
-  --button-outline: rgba(255,255,255, .10);
-  --badge-outline: rgba(255,255,255, .05);
-  --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255,255,255, .04);
-  --elevate-2: rgba(255,255,255, .09);
+  --button-outline: rgba(168, 85, 247, .22);
+  --badge-outline: rgba(168, 85, 247, .15);
+  --opaque-button-border-intensity: 12;
+  --elevate-1: rgba(168, 85, 247, .06);
+  --elevate-2: rgba(168, 85, 247, .12);
 
-  --background: 222 28% 11%;
-  --foreground: 213 31% 91%;
+  --background: 245 45% 6%;
+  --foreground: 210 40% 96%;
 
-  --border: 220 20% 22%;
+  --border: 260 35% 22%;
 
-  --card: 222 28% 14%;
-  --card-foreground: 213 31% 91%;
-  --card-border: 220 20% 22%;
+  --card: 248 40% 10%;
+  --card-foreground: 210 40% 96%;
+  --card-border: 260 35% 22%;
 
-  --sidebar: 222 28% 12%;
-  --sidebar-foreground: 213 31% 91%;
-  --sidebar-border: 220 20% 22%;
-  --sidebar-primary: 217 91% 60%;
+  --sidebar: 248 50% 8%;
+  --sidebar-foreground: 210 40% 96%;
+  --sidebar-border: 260 35% 22%;
+  --sidebar-primary: 267 90% 65%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 222 28% 18%;
-  --sidebar-accent-foreground: 213 31% 91%;
-  --sidebar-ring: 217 91% 60%;
+  --sidebar-accent: 250 40% 16%;
+  --sidebar-accent-foreground: 210 40% 96%;
+  --sidebar-ring: 190 95% 55%;
 
-  --popover: 222 28% 14%;
-  --popover-foreground: 213 31% 91%;
-  --popover-border: 220 20% 22%;
+  --popover: 248 40% 12%;
+  --popover-foreground: 210 40% 96%;
+  --popover-border: 260 35% 28%;
 
-  --primary: 217 91% 60%;
+  --primary: 267 90% 65%;
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 222 28% 20%;
-  --secondary-foreground: 213 31% 91%;
+  --secondary: 250 35% 18%;
+  --secondary-foreground: 210 40% 96%;
 
-  --muted: 222 28% 18%;
-  --muted-foreground: 215 16% 57%;
+  --muted: 250 30% 14%;
+  --muted-foreground: 230 20% 70%;
 
-  --accent: 222 28% 20%;
-  --accent-foreground: 213 31% 91%;
+  --accent: 190 95% 55%;
+  --accent-foreground: 245 45% 6%;
 
-  --destructive: 0 70% 50%;
+  --destructive: 340 85% 60%;
   --destructive-foreground: 0 0% 100%;
 
-  --input: 220 20% 26%;
-  --ring: 217 91% 60%;
+  --input: 260 30% 22%;
+  --ring: 190 95% 55%;
 
-  --chart-1: 217 91% 65%;
-  --chart-2: 160 60% 50%;
-  --chart-3: 30 80% 60%;
-  --chart-4: 280 65% 65%;
-  --chart-5: 340 75% 60%;
+  --chart-1: 190 95% 55%;
+  --chart-2: 160 70% 55%;
+  --chart-3: 30 95% 65%;
+  --chart-4: 267 90% 70%;
+  --chart-5: 327 85% 65%;
 
   --shadow-2xs: 0px 1px 2px 0px rgba(0,0,0,0.20);
   --shadow-xs: 0px 1px 3px 0px rgba(0,0,0,0.25);
@@ -222,6 +224,75 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+  }
+
+  .dark body {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(ellipse 80% 60% at 20% 0%, rgba(168, 85, 247, 0.18), transparent 60%),
+      radial-gradient(ellipse 70% 50% at 100% 30%, rgba(34, 211, 238, 0.12), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 50% 100%, rgba(236, 72, 153, 0.10), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  .font-display {
+    font-family: var(--app-font-display);
+  }
+}
+
+@layer utilities {
+  /* L.O.D.I. branded logo styles */
+  .lodi-text {
+    background: linear-gradient(110deg, #22d3ee 0%, #a855f7 50%, #ec4899 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 14px rgba(168, 85, 247, 0.45));
+  }
+
+  .lodi-tagline {
+    background: linear-gradient(110deg, #67e8f9 0%, #c4b5fd 50%, #f9a8d4 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    opacity: 0.9;
+  }
+
+  .lodi-frame {
+    border: 1px solid rgba(168, 85, 247, 0.35);
+    border-radius: 0.75rem;
+    background:
+      linear-gradient(135deg, rgba(34, 211, 238, 0.04), rgba(168, 85, 247, 0.07) 50%, rgba(236, 72, 153, 0.04)),
+      rgba(10, 8, 28, 0.55);
+    box-shadow:
+      0 0 0 1px rgba(34, 211, 238, 0.08) inset,
+      0 0 24px rgba(168, 85, 247, 0.18),
+      0 0 48px rgba(34, 211, 238, 0.08);
+    backdrop-filter: blur(8px);
+  }
+
+  .lodi-corner {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-color: #22d3ee;
+    pointer-events: none;
+    box-shadow: 0 0 6px rgba(34, 211, 238, 0.7);
+  }
+  .lodi-corner-tl { top: -1px; left: -1px; border-top: 2px solid; border-left: 2px solid; border-top-left-radius: 0.5rem; }
+  .lodi-corner-tr { top: -1px; right: -1px; border-top: 2px solid; border-right: 2px solid; border-color: #ec4899; box-shadow: 0 0 6px rgba(236, 72, 153, 0.7); border-top-right-radius: 0.5rem; }
+  .lodi-corner-bl { bottom: -1px; left: -1px; border-bottom: 2px solid; border-left: 2px solid; border-color: #a855f7; box-shadow: 0 0 6px rgba(168, 85, 247, 0.7); border-bottom-left-radius: 0.5rem; }
+  .lodi-corner-br { bottom: -1px; right: -1px; border-bottom: 2px solid; border-right: 2px solid; border-bottom-right-radius: 0.5rem; }
+
+  .neon-glow-cyan { box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.35), 0 0 18px rgba(34, 211, 238, 0.25); }
+  .neon-glow-violet { box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.35), 0 0 18px rgba(168, 85, 247, 0.25); }
+
+  .dark .lodi-card {
+    box-shadow:
+      0 0 0 1px rgba(168, 85, 247, 0.10),
+      0 8px 32px -8px rgba(168, 85, 247, 0.18);
   }
 }
 
