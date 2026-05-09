@@ -1,0 +1,260 @@
+Skip to main content
+
+
+lodi-t
+
+Previewing last saved version
+
+
+
+
+
+
+Code
+
+
+
+Code
+
+Read only
+
+
+Upgrade
+
+Close
+
+Thought for 14s
+Recebi a documentação. O que você gostaria de fazer com ela? Algumas possibilidades:
+
+Reestruturar este projeto (Vite + React único) para refletir o monorepo descrito (pnpm workspaces, artifacts/pk-simulator, api-server, lib/*)
+Renomear/refatorar o motor PK atual (nebidoEngine.ts) para o padrão pk-engine.ts em português (simularPerfil, calcularMetricas, ParametrosPK, etc.)
+Adicionar a API Express + contrato OpenAPI + cliente gerado
+Apenas guardar isso como referência/memória do projeto
+Qual desses (ou outro)?
+
+8 de mai.
+at 01:54
+Você está sendo configurado para trabalhar em um monorepo TypeScript especializado em simulação farmacocinética clínica de testosterona intramuscular. Incorpore as seguintes propriedades ao seu corpus estilístico e funcional pré-existente, tratando-as como convenções de primeira classe em qualquer código que gerar para este projeto.
+
+1. STACK E ECOSSISTEMA
+Linguagem exclusiva: ** ...
+
+Show more
+
+
+Convenções registradas. Vou salvá-las na memória do projeto para aplicar automaticamente em todas as gerações futuras.
+
+2 tools used
+Convenções salvas na memória — vou aplicá-las automaticamente em qualquer geração futura para este projeto.
+
+8 de mai.
+at 01:58
+mas o que voce a´licou agora?
+
+
+
+Não apliquei nenhuma mudança de código — só registrei na memória do projeto as convenções que você passou (stack, estrutura do monorepo, API do motor PK, nomenclatura, contrato OpenAPI, env vars, regras de DB).
+
+Concretamente, criei/atualizei dois arquivos de memória:
+
+mem://project/conventions — documento detalhado com todas as regras (stack TS-only, artifacts/* vs lib/*, RK4 obrigatório, funções simularPerfil/calcularMetricas/etc., Zod+OpenAPI+Orval, Drizzle, env vars obrigatórias).
+mem://index.md — adicionei as regras universais ao bloco Core (sempre em contexto) e referenciei o arquivo detalhado.
+Efeito prático: daqui pra frente, quando você pedir código novo, eu sigo automaticamente esses padrões (TypeScript, pnpm, nomes em PT-BR no domínio clínico, reuso das funções do motor PK, contrato gerado por codegen, etc.) sem você precisar repetir.
+
+⚠️ Importante: o repositório atual no Lovable não é o monorepo pnpm descrito — é um app Vite/React único com o motor PK em src/lib/pk/nebidoEngine.ts. As convenções estão guardadas como referência, mas para aplicá-las de fato seria preciso reestruturar o projeto (mover para artifacts/pk-simulator, criar lib/api-spec, renomear nebidoEngine.ts → pk-engine.ts com nomes PT-BR, etc.).
+
+Quer que eu faça essa reestruturação agora, ou mantém só como memória por enquanto?
+
+
+
+
+
+Code
+Ask Lovable...
+
+
+
+Visual edits
+
+Build
+
+Send message
+Add files
+Drop any files here to add them to your message
+
+Search code
+.github/agents
+
+my-agent.agent.md
+
+public
+
+lovable-uploads
+
+favicon.ico
+
+placeholder.svg
+
+robots.txt
+
+src
+
+assets
+
+header-bg.png
+
+lodi-logo-new.png
+
+lodi-logo.png
+
+components
+
+pk
+
+ui
+
+ConcentrationChart.tsx
+
+DoseAdjustmentForm.tsx
+
+EffectsAccordion.tsx
+
+EffectsTimeline.tsx
+
+LODIHeader.tsx
+
+OrganizationsSection.tsx
+
+PKCalculatorForm.tsx
+
+PKResults.tsx
+
+hooks
+
+lib
+
+pages
+
+test
+
+types
+
+App.css
+
+App.tsx
+
+index.css
+
+main.tsx
+
+vite-env.d.ts
+
+.gitignore
+
+bun.lock
+
+components.json
+
+eslint.config.js
+
+index.html
+
+package.json
+
+postcss.config.js
+
+README.md
+
+tailwind.config.ts
+
+tsconfig.app.json
+
+tsconfig.json
+
+tsconfig.node.json
+
+vite.config.ts
+
+vitest.config.ts
+
+src/pages/Index.tsx
+
+src/components/LODIHeader.tsx
+
+
+
+
+Download
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
+import lodiLogo from "@/assets/lodi-logo-new.png";
+
+export function LODIHeader() {
+  const [showExplanation, setShowExplanation] = useState(false);
+  const [showCalculations, setShowCalculations] = useState(false);
+
+  return (
+    <header className="relative overflow-hidden min-h-[220px] sm:min-h-[280px] rounded-2xl">
+      {/* Soft pastel ambient background */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background: `
+            radial-gradient(ellipse 50% 50% at 25% 30%, hsl(20,80%,75%,0.15) 0%, transparent 70%),
+            radial-gradient(ellipse 45% 45% at 75% 25%, hsl(225,40%,78%,0.15) 0%, transparent 70%),
+            radial-gradient(ellipse 40% 40% at 60% 70%, hsl(150,25%,72%,0.1) 0%, transparent 70%),
+            linear-gradient(180deg, hsl(220,20%,97%) 0%, hsl(220,15%,95%) 100%)
+          `,
+        }}
+      />
+
+      {/* Decorative circles inspired by logo */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-8 left-[15%] w-32 h-32 sm:w-48 sm:h-48 rounded-full border border-lodi-peach/20 opacity-40" />
+        <div className="absolute top-12 right-[20%] w-28 h-28 sm:w-40 sm:h-40 rounded-full border border-lodi-lavender/25 opacity-40" />
+        <div className="absolute bottom-8 left-[35%] w-24 h-24 sm:w-36 sm:h-36 rounded-full border border-lodi-sage/20 opacity-30" />
+        <div className="absolute top-16 left-[40%] w-20 h-20 sm:w-28 sm:h-28 rounded-full bg-lodi-peach/5" />
+        <div className="absolute top-6 right-[30%] w-16 h-16 sm:w-24 sm:h-24 rounded-full bg-lodi-lavender/5" />
+      </div>
+
+      {/* Geometric tick marks */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 w-px h-6 bg-border/40" />
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-px h-6 bg-border/40" />
+
+lodi-t - Lovable
